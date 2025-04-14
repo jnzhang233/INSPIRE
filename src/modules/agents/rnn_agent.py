@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 class RNNAgent(nn.Module):
     def __init__(self, input_shape, args):
+        #input_shape是一个时间步的信息总数
         super(RNNAgent, self).__init__()
         self.args = args
 

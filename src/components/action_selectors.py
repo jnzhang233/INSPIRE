@@ -1,5 +1,7 @@
 import torch as th
 from torch.distributions import Categorical
+from torch.distributions import Distribution
+Distribution.set_default_validate_args(False)
 from torch.distributions.one_hot_categorical import OneHotCategorical
 
 from .epsilon_schedules import DecayThenFlatSchedule

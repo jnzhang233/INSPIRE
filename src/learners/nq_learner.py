@@ -94,6 +94,10 @@ class NQLearner:
             # Multiprocessing pool for parallel computing.
             self.pool = Pool(1)
 
+        # priority replay
+        self.use_per = getattr(self.args, 'use_per', False)
+        self.return_priority = getattr(self.args, "return_priority", False)
+
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
         start_time = time.time()
         if self.args.use_cuda and str(self.mac.get_device()) == "cpu":
@@ -180,7 +184,7 @@ class NQLearner:
 
         self.train_t += 1
         self.avg_time += (time.time() - start_time - self.avg_time) / self.train_t
-        print("Avg cost {} seconds".format(self.avg_time))
+        #print("Avg cost {} seconds".format(self.avg_time))
 
         if (episode_num - self.last_target_update_episode) / self.args.target_update_interval >= 1.0:
             self._update_targets()
@@ -199,6 +203,21 @@ class NQLearner:
             self.logger.log_stat("q_taken_mean", q_taken_mean, t_env)
             self.logger.log_stat("target_mean", target_mean, t_env)
             self.log_stats_t = t_env
+
+        # return info
+        info = {}
+        if self.use_per:
+            if self.return_priority:
+                info["td_errors_abs"] = rewards.sum(1).detach().to('cpu')
+                # normalize to [0, 1]
+                self.priority_max = max(th.max(info["td_errors_abs"]).item(), self.priority_max)
+                self.priority_min = min(th.min(info["td_errors_abs"]).item(), self.priority_min)
+                info["td_errors_abs"] = (info["td_errors_abs"] - self.priority_min) \
+                                / (self.priority_max - self.priority_min + 1e-5)
+            else:
+                info["td_errors_abs"] = ((td_error.abs() * mask).sum(1) \
+                                / th.sqrt(mask.sum(1))).detach().to('cpu')
+        return info
 
     def _update_targets(self):
         self.target_mac.load_state(self.mac)

@@ -18,6 +18,12 @@ except Exception as e:
     print(e)
     smacv2 = False
 
+try:
+    gfootball = True
+    from .gfootball import GoogleFootballEnv
+except Exception as e:
+    gfootball = False
+    print(e)
 
 def env_fn(env, **kwargs) -> MultiAgentEnv:
     return env(**kwargs)
@@ -40,5 +46,10 @@ if smacv2:
                               os.path.join(os.getcwd(), "3rdparty", "StarCraftII"))
 else:
     print("SMAC V2 is not supported...")
+
+if gfootball:
+    REGISTRY["gfootball"] = partial(env_fn, env=GoogleFootballEnv)
+else:
+    print("GRF is not supported...")
 
 print("Supported environments:", REGISTRY)

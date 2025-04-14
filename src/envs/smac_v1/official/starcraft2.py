@@ -1697,3 +1697,14 @@ class StarCraft2Env(MultiAgentEnv):
         env_info["agent_features"] = self.ally_state_attr_names
         env_info["enemy_features"] = self.enemy_state_attr_names
         return env_info
+
+    def get_indi_terminated(self):
+        """Returns the terminated of all agents in a list."""
+        terminate = []
+        for agent_id in range(self.n_agents):
+            unit = self.get_unit_by_id(agent_id)
+            if unit.health > 0:
+                terminate.append(0)
+            else:
+                terminate.append(1)
+        return terminate

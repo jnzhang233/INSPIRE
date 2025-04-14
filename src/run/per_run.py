@@ -13,7 +13,7 @@ import sys
 from learners import REGISTRY as le_REGISTRY
 from runners import REGISTRY as r_REGISTRY
 from controllers import REGISTRY as mac_REGISTRY
-from components.episode_buffer import ReplayBuffer
+from components.episode_buffer import ReplayBuffer,PrioritizedReplayBuffer
 from components.transforms import OneHot
 
 
@@ -106,19 +106,19 @@ def run_sequential(args, logger):
     args.obs_shape = env_info["obs_shape"]
     args.accumulated_episodes = getattr(args, "accumulated_episodes", None)
 
-    if args.env in ["sc2", "sc2_v2", "gfootball"]:
+    if args.env in ["sc2", "sc2_v2",  "gfootball"]:
         if args.env in ["sc2", "sc2_v2"]:
             args.output_normal_actions = env_info["n_normal_actions"]
-            args.n_enemies = env_info["n_enemies"]
-            args.n_allies = env_info["n_allies"]
+        args.n_enemies = env_info["n_enemies"]
+        args.n_allies = env_info["n_allies"]
         # args.obs_ally_feats_size = env_info["obs_ally_feats_size"]
         # args.obs_enemy_feats_size = env_info["obs_enemy_feats_size"]
-            args.state_ally_feats_size = env_info["state_ally_feats_size"]
-            args.state_enemy_feats_size = env_info["state_enemy_feats_size"]
-            args.obs_component = env_info["obs_component"]
-            args.state_component = env_info["state_component"]
-            args.map_type = env_info["map_type"]
-            args.agent_own_state_size = env_info["state_ally_feats_size"]
+        args.state_ally_feats_size = env_info["state_ally_feats_size"]
+        args.state_enemy_feats_size = env_info["state_enemy_feats_size"]
+        args.obs_component = env_info["obs_component"]
+        args.state_component = env_info["state_component"]
+        args.map_type = env_info["map_type"]
+        args.agent_own_state_size = env_info["state_ally_feats_size"]
 
     # Default/Base scheme
     scheme = {
@@ -129,7 +129,6 @@ def run_sequential(args, logger):
         "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
         "reward": {"vshape": (1,)},
         "terminated": {"vshape": (1,), "dtype": th.uint8},
-        "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},#DIFFER特有的
     }
     groups = {
         "agents": args.n_agents
@@ -138,9 +137,10 @@ def run_sequential(args, logger):
         "actions": ("actions_onehot", [OneHot(out_dim=args.n_actions)])
     }
     # [batch, episode_length, n_agents, feature_dim]
-    buffer = ReplayBuffer(scheme, groups, args.buffer_size, env_info["episode_limit"] + 1,
-                          preprocess=preprocess,
-                          device="cpu" if args.buffer_cpu_only else args.device)
+    buffer = PrioritizedReplayBuffer(scheme, groups, args.buffer_size, env_info["episode_limit"] + 1,
+                                     args.per_alpha, args.per_beta, args.t_max,
+                                     preprocess=preprocess,
+                                     device="cpu" if args.buffer_cpu_only else args.device)
     # Setup multiagent controller here
     mac = mac_REGISTRY[args.mac](buffer.scheme, groups, args)
 
@@ -199,18 +199,15 @@ def run_sequential(args, logger):
     while runner.t_env <= args.t_max:
         # Run for a whole episode at a time
         with th.no_grad():
-            # t_start = time.time()
             episode_batch = runner.run(test_mode=False)
-            if episode_batch.batch_size > 0:  # After clearing the batch data, the batch may be empty.
-                buffer.insert_episode_batch(episode_batch)
-            # print("Sample new batch cost {} seconds.".format(time.time() - t_start))
-            episode += args.batch_size_run
+            buffer.insert_episode_batch(episode_batch)
 
         if buffer.can_sample(args.batch_size):
-            if args.accumulated_episodes and episode % args.accumulated_episodes != 0:
+            next_episode = episode + args.batch_size_run
+            if args.accumulated_episodes and next_episode % args.accumulated_episodes != 0:
                 continue
 
-            episode_sample = buffer.sample(args.batch_size)
+            episode_sample, idx, weights = buffer.sample(args.batch_size, runner.t_env)
 
             # Truncate batch to only filled timesteps
             max_ep_t = episode_sample.max_t_filled()
@@ -219,8 +216,12 @@ def run_sequential(args, logger):
             if episode_sample.device != args.device:
                 episode_sample.to(args.device)
 
-            learner.train(episode_sample, runner.t_env, episode)
+            info = learner.train(episode_sample, runner.t_env, episode)
             del episode_sample
+
+            # update priorities
+            new_priorities = info["td_errors_abs"].flatten() + 1e-6
+            buffer.update_priorities(idx, new_priorities.numpy().tolist())
 
         # Execute test runs once in a while
         n_test_runs = max(1, args.test_nepisode // runner.batch_size)
