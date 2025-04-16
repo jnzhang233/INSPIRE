@@ -22,11 +22,11 @@ class Transformer_Agent(nn.Module):
         self.n_actions = args.n_actions
 
         #embedding生成层，作为输入层
-        self.fc_embedding = nn.Linear(input_shape, args.embedding_dim)
+        self.fc_embedding = nn.Linear(input_shape, self.embedding_dim)
 
         #Transformer层
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=self.embedding_size,
+            d_model=self.embedding_dim,
             nhead=self.n_head,
             dim_feedforward=self.rnn_hidden_dim * 4,  # 通常 Transformer 中间层维度是 hidden_dim 的 4 倍
             dropout=self.dropout,
@@ -35,7 +35,7 @@ class Transformer_Agent(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=self.n_layers)
 
         #输出层，输出各动作的评分（Q函数值）
-        self.fc2 = nn.Linear(self.embedding_size, self.n_actions)
+        self.fc2 = nn.Linear(self.embedding_dim, self.n_actions)
 
 
         if getattr(args, "use_layer_norm", False):
@@ -52,15 +52,15 @@ class Transformer_Agent(nn.Module):
         # Transformer不存在显式的隐藏状态，故此函数无效。为了防止高级模块调用错误，放一个空函数
         return None
 
-    def forward(self, inputs):
-        #正常的forward函数，接收一个时间步的数据inputs，输出可选动作评分
+    def forward(self, inputs,hidden_state=None):
+        #正常的forward函数，接收一个时间步的数据inputs，输出可选动作评分。hidden_state的输入和输出单纯是为了保持调用接口一致，没有别的用
         #也是runner调用的版本
 
         #获取inputs的shape，格式是(batch_size, n_agents, feature_size)
         b, a, e = inputs.size()
 
         #生成embedding
-        embedded_inputs = F.relu(self.embedding_fc(inputs), inplace=True) #(b, a, embedding_size)
+        embedded_inputs = F.relu(self.fc_embedding(inputs), inplace=True) #(b, a, embedding_size)
 
         #导入transformer，采用n_agents作为序列
         transformer_output = self.transformer_encoder(embedded_inputs)
@@ -68,7 +68,7 @@ class Transformer_Agent(nn.Module):
         #生成动作评分
         q = self.fc2(transformer_output) # 形状是 (b, a, n_actions)
 
-        return q
+        return q,hidden_state
 
     def forward_using_embedding(self,embedded_inputs):
         #learner会用到的forward函数，这个版本输入来自其他agent的embedding并生成动作评分
@@ -86,6 +86,6 @@ class Transformer_Agent(nn.Module):
         #learner会用到的函数，输入自己的inputs并输出embedding
 
         # 生成embedding
-        embedded_inputs = F.relu(self.embedding_fc(inputs), inplace=True)  # (b, a, embedding_size)
+        embedded_inputs = F.relu(self.fc_embedding(inputs), inplace=True)  # (b, a, embedding_size)
 
         return embedded_inputs

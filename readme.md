@@ -116,6 +116,10 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
 
 2. transformer做的agent网络：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=20000
 
+   transformer层消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=3005000 transformer_n_layers=1
+
+   transformer头消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=3005000 transformer_n_head=1
+
    正在测试，反正能跑？
 
 
@@ -238,10 +242,18 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
 
 episode_runner的话3005000轮次即可，如果用pareall_runner的话可能更推荐10005000轮次，而且明显更不稳定。目前来说推荐用episode_runner。
 
-### 测试基于正态分布的经验选择与分享算法效果
+### 模块coding测试
 
-在/home/stu/zjn/new_differ/results/sacred/2s3z/inspire_qmix/2，正在跑
+#### 阶段1：
 
-### 测试differ+transformer_agent的效果
+![](D:\study_work\python\New_Differ\picture\ablition-module_test-2s3z.jpg)
 
-在/home/stu/zjn/new_differ/results/sacred/2s3z/transformer_test/1，正在跑
+{'DIFFER(baseline)': 0.9861111111111112。DIFFER基线。
+
+'DIFFER_Transformer': 0.9852216748768472。跑错了，这个还是DIFFER基线。
+
+'INSPIRE_ESR_using_normal_distribution': 0.9863013698630136。基于正态分布的经验选择与分享算法+DIFFER效果。
+
+目前在跑：
+
+加了transformer的differ。transformer的transformer_n_head=1版本，transformer的transformer_n_layers=1版本
