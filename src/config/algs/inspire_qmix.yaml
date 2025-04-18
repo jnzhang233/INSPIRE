@@ -11,6 +11,9 @@ runner: "episode"
 
 buffer_size: 5000
 
+#使用特制mac
+mac: "transformer_mac"
+
 # update the target network every {} episodes
 target_update_interval: 200
 
@@ -28,8 +31,8 @@ selected: "PER_weight"
 warm_up: True
 selected_alpha: 0.8  #计算优先级分数用的参数
 selected_ratio: 0.6  #采样比例
-selected_ratio_start: 0.8  #采样比例的起始值
-selected_ratio_end: 1.0  #采样比例的最终值
+selected_ratio_start: 0.8  #PER采样比例的起始值
+selected_ratio_end: 1.0  #PER采样比例的最终值
 warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
 selected_epsilon: 0.01  #采样可能性的参数
 beta_start: 0.6  #PER优先级采样中，beta的起始值
@@ -37,5 +40,21 @@ beta_end: 1  #PER优先级采样中，beta的最终值
 
 #测试参数
 use_ESR_based_on_normal_distribution: True #使用基于正态分布的经验选择与接收算法
+
+#transformer参数
+agent: transformer #将使用的agent改成transformer
+transformer_embedding_dim: 128 #transformer中embedding的size。一般至少与输入相当或更大
+transformer_n_head: 2 #encoder的多头注意力头数
+transformer_n_layers: 2 #transformer的编解码器层数
+transformer_dropout: 0 #dropout概率
+
+# ESR参数
+min_eps: 1e-6 #极小值
+probability_temperature: 1 #方差的缩放系数，为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验
+ESR_warm_up: True #ESR是否采样warm_up
+ESR_selected_ratio: 0.05  #ESR采样比例
+ESR_selected_ratio_start: 0.01  #ESR采样比例的起始值
+ESR_selected_ratio_end: 0.05  #ESR采样比例的最终值
+ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
 
 name: "inspire_qmix"

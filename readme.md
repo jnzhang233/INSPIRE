@@ -98,13 +98,23 @@
 
 目前在12服务器运行。
 
-differ_qmix版本，用的episode_runner:python src/main.py --config=differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=20000
+**differ_qmix版本，用的episode_runner:**
+
+（SMACV1）python src/main.py --config=differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=20000
+
+（SMACV2）python src/main.py --config=qmix --env-config=sc2_v2_zerg with t_max=20000
 
 
 
-运行inspire_qmix:
+**运行inspire_qmix_v0:**
 
-python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=3005000
+（SMACV1）python src/main.py --config=inspire_qmix_v0 --env-config=sc2 with env_args.map_name=2s3z t_max=3005000
+
+
+
+**运行inspire_qmix:**
+
+（SMACV1）python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=3005000
 
 
 
@@ -116,13 +126,25 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
 
 2. transformer做的agent网络：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=20000
 
-   transformer层消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=3005000 transformer_n_layers=1
+   跑1505000轮就行，一般100万轮就收敛了。如和其他算法比较可以跑200万轮，因为其他算法可能150万轮左右收敛，再慢的就不管了。
+
+   transformer层消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 transformer_n_layers=1
 
    transformer头消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=3005000 transformer_n_head=1
 
-   正在测试，反正能跑？
+   正在测试
 
+## 目前在跑
 
+**目前在跑（12服务器）：**
+
+INSPIRE:ESR+transformer_agent:在INSPIRE/1
+
+transformer参数消融：
+
+head=4在transformer/2，head=8在transformer/3
+
+layer=3在transformer/4
 
 ## 改进思路
 
@@ -136,21 +158,20 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
 
 
 
-1. 每个智能体对经验批次过transformer生成固定批次的embedding，然后分享embedding。接收端接收embedding后解压缩成新经验。新的经验可以更适合目前智能体的经验。可能可以提取和构建新的信息来帮助智能体的经验。对自己的经验可以直接用。可以削减通信频次。
+1. 每个智能体对经验批次过transformer生成固定批次的embedding，然后分享embedding。接收端接收embedding后进行处理。可能可以提取和构建新的信息来帮助智能体的经验。对自己的经验可以直接用。可以削减通信频次。
 
    目前来看是最不靠谱的改进思路，建议回炉。
 
    **存在的问题：**
 
    1. 在工程实践中，智能体实际分享的是TD-ERROR而不是整个经验，而且一次训练用的是batch_size个轨迹的batch，并不是实时交互和分享的。
-   2. 固定批次的embedding应对多样化的环境必然出现问题。需要根据agent数目和经验批次规模来建立一个计算生成embedding数目的公式
-   3. 目前agent网络的输入是整个显式数据构成的episode_batch的每一步。而且input_size是锁死的，同时接收embedding和state很可能造成训练的混乱。直接使用embedding进行训练，也会导致训练的结果不能直接用于与环境的交互中，这是本末倒置的。
-   4. 接收embedding后解压缩为新的经验，可行性很低。而且训练工程中，所有agent的数据都在一个批次内，真有这个需要直接把完整的数据送过去就好了。
-
+   3. 目前agent网络的输入是整个显式数据构成的episode_batch的每一步。而且input_size是锁死的，同时接收embedding和state很可能造成训练的混乱。直接使用embedding进行训练，也会导致训练的结果不能直接用于与环境的交互中，这是本末倒置的。——已解决，将agent网络换成了transformer。
+   4. 接收embedding后解压缩为新的经验，可行性很低。而且训练工程中，所有agent的数据都在一个批次内，真有这个需要直接把完整的数据送过去就好了。——已忽略，不进行解压缩。
+   
    可能的实现方式：
-
-   1. 构建一个Transformer做agent网络，自己的经验走全过程，别人的embedding从attention层走。
-
+   
+   1. 构建一个Transformer做agent网络，自己的经验走全过程，别人的embedding从attention层走。——因为agent是同构的，所以其实别人的embedding和经验进来也是那个TD-error，这一点不用太担心。
+   
 2. 只和视野范围内的共享。采样一些批次计算是不是在视野范围内。视野范围需要参数消融。可以考虑mean_shift。可以考虑改成用ROMA的角色聚类来实现共享对象的选择。可以看看谢老师发的局部观测通信方面的文章找找灵感。
 
    存在的问题:
@@ -182,9 +203,10 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
 
    存在的问题：
 
-   1. 我们可以考虑训练一个网络来为经验打分，判断经验是否值得分享。但是具体网络怎么设置还有待商榷。
-   1. 或许可以仿照PER的采样机制，让极端值有高概率被分享，但是一般的值也有一定概率被分享。被分享的概率取决于值的概率。
-   3. 是否需要对轨迹做PER
+   1. 我们可以考虑训练一个网络来为经验打分，判断经验是否值得分享。但是具体网络怎么设置还有待商榷。——目前不做
+   2. 或许可以仿照PER的采样机制，让极端值有高概率被分享，但是一般的值也有一定概率被分享。被分享的概率取决于值的概率。
+      1. 设置一个正态分布反函数的概率密度函数，根据TD-error进行分享。距离均值越远，分享概率越大。
+      2. 这样做了之后经验接收的部分也一定要进行配套改进，比如说高于正态分布阈值的一定接收，低于阈值的有概率接收。
 
 3. 共享的频次可以通过经验采样的变化熵来判断，熵越大频次越高。
 
@@ -224,9 +246,17 @@ python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name
    
    b. 完成了经验接收的code
 
-### stage2:尝试设计一个基于transformer的agent网络：
+### stage2:尝试设计一个基于transformer的agent网络：done，需要调优参数
 
 1. 添加了src/modules/agents/trnasformer_agent.py。并在init.py添加了导入语句
+
+### stage3:尝试实现idea1：基本可以跑了，只是还需要调参
+
+1. 创建一个专用controller
+2. 在QMIX上实现了SUPER
+3. 设置v0版本的inspire：使用RNN_agent，用的是基于正态分布的ESR算法
+
+### stage4：尝试实现Idea3
 
 ## idea测试
 
@@ -252,8 +282,37 @@ episode_runner的话3005000轮次即可，如果用pareall_runner的话可能更
 
 'DIFFER_Transformer': 0.9852216748768472。跑错了，这个还是DIFFER基线。
 
-'INSPIRE_ESR_using_normal_distribution': 0.9863013698630136。基于正态分布的经验选择与分享算法+DIFFER效果。
+'INSPIRE_ESR_using_normal_distribution': 0.9863013698630136。基于正态分布的经验选择与分享算法+DIFFER效果。？
 
-目前在跑：
 
-加了transformer的differ。transformer的transformer_n_head=1版本，transformer的transformer_n_layers=1版本
+
+### transformer参数消融：
+
+用differ实现的，因为主算法还在构建。
+
+![](D:\study_work\python\New_Differ\picture\ablition-transformer_test-2s3z.jpg)
+
+head消融（多头注意力头数，transformer_n_head）成绩（2005000轮次）：
+
+| 类型           | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| -------------- | ------------------ | -------------------------------- | ------------------ |
+| head=1,layer=2 | 0.9418604651162791 | 16 hours, 57 minutes, 15 seconds | 0.65168            |
+| head=2,layer=2 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds | 1.082992           |
+| head=4,layer=2 |                    |                                  |                    |
+| head=8,layer=2 |                    |                                  |                    |
+
+head的值必须可以整除embedding_dim，所以一般设置为2、4、8的倍数。在不想用多头注意力时，可以令head为1.
+
+layer消融（2005000轮次）
+
+| 类型           | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| -------------- | ------------------ | -------------------------------- | ------------------ |
+| head=2,layer=1 | 0.9128205128205128 | 13 hours, 7 minutes, 5 seconds   | 1.16314            |
+| head=2,layer=2 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds | 1.082992           |
+| head=3,layer=3 |                    |                                  |                    |
+| head=4,layer=4 |                    |                                  |                    |
+
+
+
+
+
