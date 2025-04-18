@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch as th
@@ -70,11 +71,12 @@ class Transformer_Agent(nn.Module):
 
         return q,hidden_state
 
-    def forward_using_embedding(self,embedded_inputs):
+    def forward_using_embedding(self,embedded_inputs,hidden_state=None):
         #learner会用到的forward函数，这个版本输入来自其他agent的embedding并生成动作评分
 
         #这里和forward的transformer部分一致，要修改就一起修改
         # 导入transformer，采用n_agents作为序列
+        embedded_inputs = F.relu(embedded_inputs, inplace=True)
         transformer_output = self.transformer_encoder(embedded_inputs)
 
         # 生成动作评分
@@ -82,10 +84,10 @@ class Transformer_Agent(nn.Module):
 
         return q
 
-    def get_embedding(self,inputs):
+    def get_embedding(self,inputs,hidden_state=None):
         #learner会用到的函数，输入自己的inputs并输出embedding
 
         # 生成embedding
-        embedded_inputs = F.relu(self.fc_embedding(inputs), inplace=True)  # (b, a, embedding_size)
+        embedded_inputs = self.fc_embedding(inputs)  # (b, a, embedding_size)
 
         return embedded_inputs
