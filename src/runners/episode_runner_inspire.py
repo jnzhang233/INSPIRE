@@ -87,7 +87,9 @@ class EpisodeRunner:
             post_transition_data = {
                 "actions": cpu_actions,
                 "reward": [(reward,)],
-                "terminated": [(terminated != env_info.get("episode_limit", False),)]
+                "terminated": [(terminated != env_info.get("episode_limit", False),)],
+                "indi_terminated": [self.env.get_indi_terminated()],
+                "visibility_matrix": [self.env.get_ally_visibility_matrix()]
             }
 
             self.batch.update(post_transition_data, ts=self.t)

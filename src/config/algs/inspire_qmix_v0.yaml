@@ -7,7 +7,7 @@ epsilon_start: 1.0
 epsilon_finish: 0.05
 epsilon_anneal_time: 50000
 
-runner: "episode"
+runner: "episode_differ"
 
 buffer_size: 5000
 
@@ -22,6 +22,9 @@ mixer: "qmix"
 mixing_embed_dim: 32
 hypernet_layers: 2
 hypernet_embed: 64
+
+#使用专用schema
+scheme: "differ"
 
 #独有参数
 selected: "PER_weight"

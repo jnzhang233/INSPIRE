@@ -108,6 +108,7 @@ class EpisodeBatch:
             dtype = self.scheme[k].get("dtype", th.float32)
             v = th.tensor(v, dtype=dtype, device=self.device)
             self._check_safe_view(k, v, target[k][_slices])
+            #新增，允许添加矩阵
             target[k][_slices] = v.view_as(target[k][_slices])
 
             if k in self.preprocess:

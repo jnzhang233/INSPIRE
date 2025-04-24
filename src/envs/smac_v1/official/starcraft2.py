@@ -69,6 +69,7 @@ class StarCraft2Env(MultiAgentEnv):
         step_mul=8,
         move_amount=2,
         difficulty="7",
+        sight_range=9,
         game_version=None,
         seed=None,
         continuing_episode=False,
@@ -211,6 +212,7 @@ class StarCraft2Env(MultiAgentEnv):
         self.obs_pathing_grid = obs_pathing_grid
         self.obs_terrain_height = obs_terrain_height
         self.obs_timestep_number = obs_timestep_number
+        self.sight_range = sight_range
         self.state_last_action = state_last_action
         self.state_timestep_number = state_timestep_number
         if self.obs_all_health:
@@ -843,7 +845,7 @@ class StarCraft2Env(MultiAgentEnv):
 
     def unit_sight_range(self, agent_id):
         """Returns the sight range for an agent."""
-        return 9
+        return self.sight_range
 
     def unit_max_cooldown(self, unit):
         """Returns the maximal cooldown for a unit."""
@@ -1131,6 +1133,188 @@ class StarCraft2Env(MultiAgentEnv):
         """
         agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
         return agents_obs
+
+    def get_obs_agent_kaitu(self, agent_id):
+        """Returns observation for agent_id. The observation is composed of:
+
+           - agent movement features (where it can move to, height information and pathing grid)
+           - enemy features (available_to_attack, health, relative_x, relative_y, shield, unit_type)
+           - ally features (visible, distance, relative_x, relative_y, shield, unit_type)
+           - agent unit features (health, shield, unit_type)
+
+           All of this information is flattened and concatenated into a list,
+           in the aforementioned order. To know the sizes of each of the
+           features inside the final list of features, take a look at the
+           functions ``get_obs_move_feats_size()``,
+           ``get_obs_enemy_feats_size()``, ``get_obs_ally_feats_size()`` and
+           ``get_obs_own_feats_size()``.
+
+           The size of the observation vector may vary, depending on the
+           environment configuration and type of units present in the map.
+           For instance, non-Protoss units will not have shields, movement
+           features may or may not include terrain height and pathing grid,
+           unit_type is not included if there is only one type of unit in the
+           map etc.).
+
+           NOTE: Agents should have access only to their local observations
+           during decentralised execution.
+        """
+        unit = self.get_unit_by_id(agent_id)
+
+        move_feats_dim = self.get_obs_move_feats_size()
+        enemy_feats_dim = self.get_obs_enemy_feats_size()
+        ally_feats_dim = self.get_obs_ally_feats_size()
+        own_feats_dim = self.get_obs_own_feats_size()
+
+        move_feats = np.zeros(move_feats_dim, dtype=np.float32)
+        enemy_feats = np.zeros(enemy_feats_dim, dtype=np.float32)
+        ally_feats = np.zeros(ally_feats_dim, dtype=np.float32)
+        own_feats = np.zeros(own_feats_dim, dtype=np.float32)
+
+        if unit.health > 0:  # otherwise dead, return all zeros
+            x = unit.pos.x
+            y = unit.pos.y
+            sight_range = self.unit_sight_range(agent_id)
+
+            # Movement features
+            avail_actions = self.get_avail_agent_actions(agent_id)
+            for m in range(self.n_actions_move):
+                move_feats[m] = avail_actions[m + 2]
+
+            ind = self.n_actions_move
+
+            if self.obs_pathing_grid:
+                move_feats[
+                    ind : ind + self.n_obs_pathing
+                ] = self.get_surrounding_pathing(unit)
+                ind += self.n_obs_pathing
+
+            if self.obs_terrain_height:
+                move_feats[ind:] = self.get_surrounding_height(unit)
+
+            # Enemy features
+            for e_id, e_unit in self.enemies.items():
+                e_x = e_unit.pos.x
+                e_y = e_unit.pos.y
+                dist = self.distance(x, y, e_x, e_y)
+
+                if (
+                    e_unit.health > 0
+                ):  # visible and alive
+                    # Sight range > shoot range
+                    enemy_feats[e_id, 0] = avail_actions[
+                        self.n_actions_no_attack + e_id
+                    ]  # available
+                    enemy_feats[e_id, 1] = dist / sight_range  # distance
+                    enemy_feats[e_id, 2] = (
+                        e_x - x
+                    ) / sight_range  # relative X
+                    enemy_feats[e_id, 3] = (
+                        e_y - y
+                    ) / sight_range  # relative Y
+
+                    ind = 4
+                    if self.obs_all_health:
+                        enemy_feats[e_id, ind] = (
+                            e_unit.health / e_unit.health_max
+                        )  # health
+                        ind += 1
+                        if self.shield_bits_enemy > 0:
+                            max_shield = self.unit_max_shield(e_unit)
+                            enemy_feats[e_id, ind] = (
+                                e_unit.shield / max_shield
+                            )  # shield
+                            ind += 1
+
+                    if self.unit_type_bits > 0:
+                        type_id = self.get_unit_type_id(e_unit, False)
+                        enemy_feats[e_id, ind + type_id] = 1  # unit type
+
+            # Ally features
+            al_ids = [
+                al_id for al_id in range(self.n_agents) if al_id != agent_id
+            ]
+            for i, al_id in enumerate(al_ids):
+
+                al_unit = self.get_unit_by_id(al_id)
+                al_x = al_unit.pos.x
+                al_y = al_unit.pos.y
+                dist = self.distance(x, y, al_x, al_y)
+
+                if (
+                    al_unit.health > 0
+                ):  # visible and alive
+                    ally_feats[i, 0] = 1  # visible
+                    ally_feats[i, 1] = dist / sight_range  # distance
+                    ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
+                    ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
+
+                    ind = 4
+                    if self.obs_all_health:
+                        ally_feats[i, ind] = (
+                            al_unit.health / al_unit.health_max
+                        )  # health
+                        ind += 1
+                        if self.shield_bits_ally > 0:
+                            max_shield = self.unit_max_shield(al_unit)
+                            ally_feats[i, ind] = (
+                                al_unit.shield / max_shield
+                            )  # shield
+                            ind += 1
+
+                    if self.unit_type_bits > 0:
+                        type_id = self.get_unit_type_id(al_unit, True)
+                        ally_feats[i, ind + type_id] = 1
+                        ind += self.unit_type_bits
+
+                    if self.obs_last_action:
+                        ally_feats[i, ind:] = self.last_action[al_id]
+
+            # Own features
+            ind = 0
+            if self.obs_own_health:
+                own_feats[ind] = unit.health / unit.health_max
+                ind += 1
+                if self.shield_bits_ally > 0:
+                    max_shield = self.unit_max_shield(unit)
+                    own_feats[ind] = unit.shield / max_shield
+                    ind += 1
+
+            if self.unit_type_bits > 0:
+                type_id = self.get_unit_type_id(unit, True)
+                own_feats[ind + type_id] = 1
+
+        agent_obs = np.concatenate(
+            (
+                move_feats.flatten(),
+                enemy_feats.flatten(),
+                ally_feats.flatten(),
+                own_feats.flatten(),
+            )
+        )
+
+        if self.obs_timestep_number:
+            agent_obs = np.append(agent_obs,
+                                  self._episode_steps / self.episode_limit)
+
+        if self.debug:
+            logging.debug("Obs Agent: {}".format(agent_id).center(60, "-"))
+            logging.debug("Avail. actions {}".format(
+                self.get_avail_agent_actions(agent_id)))
+            logging.debug("Move feats {}".format(move_feats))
+            logging.debug("Enemy feats {}".format(enemy_feats))
+            logging.debug("Ally feats {}".format(ally_feats))
+            logging.debug("Own feats {}".format(own_feats))
+
+        return agent_obs
+
+    def get_obs_kaitu(self):
+        """Returns all agent observations in a list.
+        NOTE: Agents should have access only to their local observations
+        during decentralised execution.
+        """
+        agents_obs_kaitu = [self.get_obs_agent_kaitu(i) for i in range(self.n_agents)]
+        return agents_obs_kaitu
 
     def get_state(self):
         """Returns the global state.
@@ -1708,3 +1892,33 @@ class StarCraft2Env(MultiAgentEnv):
             else:
                 terminate.append(1)
         return terminate
+
+    def get_ally_visibility_matrix(self):
+        #inspire用的，获取队友的可见矩阵，为[n_agent,n_agent]，可见为0，反之1
+        #获取每个agent的id
+        agents= []
+        for id in range(self.n_agents):
+            unit = self.get_unit_by_id(id)
+            agents.append(unit)
+        matrix = [[0 for _ in range(self.n_agents)] for _ in range(self.n_agents)]
+        for agent in range(self.n_agents):
+            pos_x, pos_y = agents[agent].pos.x,agents[agent].pos.y
+            for ally_agent in range(agent, self.n_agents):
+                if agent == ally_agent:
+                    matrix[agent][ally_agent] = 1
+                else:
+                    ally_x, ally_y = agents[ally_agent].pos.x,agents[ally_agent].pos.y
+                    if abs(pos_x - ally_x) + abs(pos_y - ally_y) <= self.sight_range:
+                        matrix[agent][ally_agent] = 0
+                        matrix[ally_agent][agent] = 0
+                    else:
+                        matrix[agent][ally_agent] = 1
+                        matrix[ally_agent][agent] = 1
+        # 格式化为一维列表。将每一行视为一个01字符串，转化为对应整数
+        list = []
+        for i in range(self.n_agents):
+            row = matrix[i]
+            binary_str = ''.join(map(str, row))
+            list.append(int(binary_str, 2))
+        matrix = list
+        return matrix

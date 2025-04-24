@@ -26,6 +26,7 @@ class GoogleFootballEnv(MultiAgentEnv):
         write_video=False,
         number_of_right_players_agent_controls=0,
         seed=0,
+        sight_field=0.2
     ):
         self.dense_reward = dense_reward
         self.write_full_episode_dumps = write_full_episode_dumps
@@ -43,6 +44,7 @@ class GoogleFootballEnv(MultiAgentEnv):
         self.write_video = write_video
         self.number_of_right_players_agent_controls = number_of_right_players_agent_controls
         self.seed = seed
+        self.sight_field = sight_field #视野范围，自定义
 
         self.env = football_env.create_environment(
             write_full_episode_dumps=self.write_full_episode_dumps,
@@ -82,6 +84,8 @@ class GoogleFootballEnv(MultiAgentEnv):
         obs, rewards, done, infos = self.env.step(actions.tolist())
 
         self.obs = obs
+
+        self.full_obs = self.env.unwrapped.observation()[0] #方便自定义参数
 
         if self.time_step >= self.episode_limit:
             done = True
@@ -146,3 +150,38 @@ class GoogleFootballEnv(MultiAgentEnv):
 
     def get_stats(self):
         return  {}
+
+    def get_indi_terminated(self):
+        #differ用的，获取个体存活标签。
+        terminate = []
+        for agent in range(self.n_agents):
+            if self.full_obs["left_team_yellow_card"][agent] == False:
+                terminate.append(0)
+            else:
+                terminate.append(1)
+        return terminate
+
+    def get_ally_visibility_matrix(self):
+        #inspire用的，获取队友的可见矩阵，为[n_agent,n_agent]，可见为0，反之1
+        matrix = [[0 for _ in range(self.n_agents)] for _ in range(self.n_agents)]
+        for agent in range(self.n_agents):
+            pos_x,pos_y = self.full_obs["left_team_direction"][agent]
+            for ally_agent in range(agent, self.n_agents):
+                if agent == ally_agent:
+                    matrix[agent][ally_agent] = 1
+                else:
+                    ally_x,ally_y = self.full_obs["left_team_direction"][agent]
+                    if abs(pos_x - ally_x) + abs(pos_y - ally_y) <= self.sight_field:
+                        matrix[agent][ally_agent] = 0
+                        matrix[ally_agent][agent] = 0
+                    else:
+                        matrix[agent][ally_agent] = 1
+                        matrix[ally_agent][agent] = 1
+        #格式化为一维列表。将每一行视为一个01字符串，转化为对应整数
+        list = []
+        for i in range(self.n_agents):
+            row = matrix[i]
+            binary_str = ''.join(map(str,row))
+            list.append(int(binary_str,2))
+        matrix = list
+        return matrix

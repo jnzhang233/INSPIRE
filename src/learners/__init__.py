@@ -7,6 +7,7 @@ from .q_learner_divide import QDivedeLearner
 from .qmix_newdiffer_test import INSPIRE_Learner
 from .qmix_newdiffer__ESR import INSPIRE_Learner as INSPIRE_Learner_v0
 from .qmix_super import SUPER_Learner
+from .qmix_per import PER_Learner
 
 REGISTRY = {}
 
@@ -24,3 +25,5 @@ REGISTRY["inspire_learner"] = INSPIRE_Learner
 REGISTRY["inspire_learner_v0"] = INSPIRE_Learner_v0
 #super_qmix
 REGISTRY["super_learner"] = SUPER_Learner
+#per_qmix
+REGISTRY["per_learner"] = PER_Learner

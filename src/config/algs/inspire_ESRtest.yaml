@@ -7,7 +7,7 @@ epsilon_start: 1.0
 epsilon_finish: 0.05
 epsilon_anneal_time: 50000
 
-runner: "episode_inspire"
+runner: "episode_differ"
 
 buffer_size: 5000
 
@@ -26,9 +26,6 @@ mixing_embed_dim: 32
 hypernet_layers: 2
 hypernet_embed: 64
 
-#使用专用schema
-scheme: "inspire"
-
 #独有参数
 selected: "PER_weight"
 warm_up: True
@@ -40,6 +37,9 @@ warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间�
 selected_epsilon: 0.01  #采样可能性的参数
 beta_start: 0.6  #PER优先级采样中，beta的起始值
 beta_end: 1  #PER优先级采样中，beta的最终值
+
+#使用专用schema
+scheme: "differ"
 
 #测试参数
 use_ESR_based_on_normal_distribution: True #使用基于正态分布的经验选择与接收算法
@@ -57,12 +57,12 @@ probability_temperature: 1 #方差的缩放系数，为1使用原值，>1增大�
 ESR_warm_up: True #ESR是否采样warm_up
 ESR_selected_ratio: 0.05  #ESR采样比例
 ESR_selected_ratio_start: 0.1  #ESR采样比例的起始值
-ESR_selected_ratio_end: 0.5  #ESR采样比例的最终值
+ESR_selected_ratio_end: 0.5 #ESR采样比例的最终值
 ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
-probabilities_version: 1 #概率密度函数的版本
-receive_version: 1 #经验接收函数的版本
-sigmoid_aphla: 1.0 #sigmoid的aphla参数，控制均值距离对接收概率的灵敏度。aphla越大，偏离均值的aphla接收概率就越大
-sigmoid_beta:  0.5 #sigmoid的beta参数，控制对接收经验的宽松度。beta越大，对接收经验的距离要求就越严格。
+probabilities_version: 1 #概率密度函数的版本,1,2
+receive_version: 1 #经验接收函数的版本,0,1,2
+sigmoid_aphla: 1.0 #receive_version2,sigmoid的aphla参数，控制均值距离对接收概率的灵敏度。aphla越大，偏离均值的aphla接收概率就越大
+sigmoid_beta:  0.5 #receive_version2,sigmoid的beta参数，控制对接收经验的宽松度。beta越大，对接收经验的距离要求就越严格。
 
 
-name: "inspire_qmix"
+name: "ESR_test"

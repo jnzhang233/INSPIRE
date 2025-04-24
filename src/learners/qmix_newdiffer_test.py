@@ -1,4 +1,6 @@
 import copy
+import time
+
 import numpy
 import torch
 from components.episode_buffer import EpisodeBatch
@@ -46,10 +48,10 @@ class INSPIRE_Learner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         avail_actions = batch["avail_actions"]
         indi_terminated = batch["indi_terminated"][:, :-1].float()
-
+        visibility_matrix = batch["visibility_matrix"][:, :-1].float()
         #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #修改部分，拆解transformer的推理步骤以获取embedding,还没改完
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
+        #修改部分：transformer推理
+        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
         # Calculate estimated Q-Values
         mac_out = []
         embedding_out = []
@@ -63,6 +65,17 @@ class INSPIRE_Learner:
         embedding_out = th.stack(embedding_out,dim=1) #(batch_size,seq_length,n_agents,embedding_dim)
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
+        # 修改部分：格式化visibility_matrix
+        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
+        batch_size,seq,n_agents= visibility_matrix.shape
+        matrix = torch.zeros((batch_size,seq,n_agents,n_agents),dtype=torch.int8)
+        visibility_matrix = visibility_matrix.to(torch.int8)
+        for bit_position in range(n_agents):
+            matrix[:,:,bit_position,:] = (visibility_matrix >> bit_position) & 1
+        visibility_matrix = matrix
+
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
 
@@ -298,7 +311,7 @@ class INSPIRE_Learner:
         self.n_agents = masked_q_td_error.shape[2]
 
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        # 新增的改进部分-更新分享TD-error的部分，让分享概率正比于值的极端性。有问题，还在改
+        # 新增的改进部分-更新分享TD-error的部分，让分享概率正比于值的极端性。
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         #计算共享td-error的清单
         # 计算每个agent的每个经验批次的方差和均值
@@ -306,18 +319,43 @@ class INSPIRE_Learner:
         mean_td_error = masked_q_td_error_clone.mean(dim=[1])
         var_td_error = masked_q_td_error_clone.var(dim=[1])
         var_td_error = torch.clamp(var_td_error , min=float(self.args.min_eps)) #防止为0
-        #扩充以方便计算
-        mean_td_error = mean_td_error.unsqueeze(1).expand(self.batch_size,self.seq_len,self.n_agents)
-        var_td_error = var_td_error.unsqueeze(1).expand(self.batch_size, self.seq_len, self.n_agents)
 
-        #计算概率密度函数。这个函数或许有问题，需要检查一下是不是符合预期。
-        var_td_error_power = (var_td_error * float(self.args.probability_temperature))**2
-        exponent = -((masked_q_td_error_clone - mean_td_error)**2) / (2 * var_td_error_power)
-        numerator = torch.exp(exponent)
-        denominator = torch.sqrt(2 * numpy.pi * (var_td_error_power))
-        probabilities = numerator / denominator
-        #对每个batch的每个agent的td-error，做归一化以得到概率分布
-        probabilities = probabilities / (torch.sum(probabilities,dim = 1,keepdim=True).expand(self.batch_size, self.seq_len, self.n_agents) + float(self.args.min_eps))
+
+        begin = time.time()
+        #计算概率密度函数。version=1，只计算对自己分布的概率密度函数
+        if self.args.probabilities_version == 1:
+            # 扩充以方便计算
+            mean_td_error_exp = mean_td_error.unsqueeze(1).expand(self.batch_size, self.seq_len, self.n_agents)
+            var_td_error_exp = var_td_error.unsqueeze(1).expand(self.batch_size, self.seq_len, self.n_agents)
+            # 计算概率密度函数。version=1，只计算对自己分布的概率密度函数
+            var_td_error_power = (var_td_error_exp * float(self.args.probability_temperature))**2
+            exponent = -((masked_q_td_error_clone - mean_td_error_exp)**2) / (2 * var_td_error_power)
+            numerator = torch.exp(exponent)
+            denominator = torch.sqrt(2 * numpy.pi * (var_td_error_power))
+            probabilities = numerator / denominator
+            #直到这里，计算的是高斯概率密度函数，下面需要进行变换以满足需求
+            probabilities = -probabilities #沿x轴翻转，实现越靠近均值的td-error概率越小
+            probabilities = probabilities - torch.min(probabilities) #减去最小值以保证所有值≥0
+            #对每个batch的每个agent的td-error，做归一化以得到概率分布
+            probabilities = probabilities / (torch.sum(probabilities,dim = 1,keepdim=True).expand(self.batch_size, self.seq_len, self.n_agents) + float(self.args.min_eps))
+        if self.args.probabilities_version == 2:#对每个agent的高斯概率分布，计算一遍概率密度函数并求和归一化
+            probabilities_sum = torch.zeros_like(masked_q_td_error_clone)
+            for agent_index in range(self.n_agents):#对每个agent的概率分布计算一次
+                #扩充agent_index的概率分布到所有agent
+                mean_td_error_agent = mean_td_error[:, agent_index].unsqueeze(1).unsqueeze(2).expand(self.batch_size, self.seq_len, self.n_agents)
+                var_td_error_agent = var_td_error[:, agent_index].unsqueeze(1).unsqueeze(2).expand(self.batch_size, self.seq_len, self.n_agents)
+                #完成一次概率密度函数计算
+                var_td_error_power = (var_td_error_agent * float(self.args.probability_temperature)) ** 2
+                exponent = -((masked_q_td_error_clone - mean_td_error_agent) ** 2) / (2 * var_td_error_power)
+                numerator = torch.exp(exponent)
+                denominator = torch.sqrt(2 * numpy.pi * (var_td_error_power))
+                probabilities = numerator / denominator
+                # 直到这里，计算的是高斯概率密度函数，下面需要进行变换以满足需求
+                probabilities = -probabilities  # 沿x轴翻转，实现越靠近均值的td-error概率越小
+                probabilities = probabilities - torch.min(probabilities)  # 减去最小值以保证所有值≥0
+                probabilities_sum += probabilities #加上相对于这个概率分布的概率密度函数
+            # 对每个batch的每个agent的td-error，做归一化以得到概率分布
+            probabilities = probabilities_sum / (torch.sum(probabilities_sum,dim = 1,keepdim=True).expand(self.batch_size, self.seq_len, self.n_agents) + float(self.args.min_eps))
 
         #计算采样比例
         if self.args.ESR_warm_up:#执行warm-up，随着训练推移线性更新采样比例selected_radio
@@ -341,39 +379,100 @@ class INSPIRE_Learner:
         share_list = masked_q_td_error_clone * share_gate_mask
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
+        # 新增的改进部分-更新接收TD-error的部分，让接收概率正比于极端性。
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         # 计算接收td-error的清单
-        gate_down_value = th.zeros((self.batch_size, self.args.n_agents))
-        gate_up_value = th.zeros((self.batch_size, self.args.n_agents))
-        self.q_mean, self.q_std, self.q_down_value, self.q_up_value = self.sum_and_sig(masked_q_td_error,
-                                                                                       gate_down_value, gate_up_value)
-        #share_list的每个对应embedding给各agent计算一下自己的q_vals
-        share_own_td_error = torch.zeros([self.batch_size, self.seq_len, self.args.n_agents, self.args.n_agents]) #存放自己计算的TD-error
-        receive_list = torch.zeros([self.batch_size, self.seq_len, self.args.n_agents])  # 创建一个空矩阵存received_experience
-        # 创建agent索引张量
-        re_agent_indices = th.arange(self.args.n_agents)
-        # 创建禁止向自己分享的掩膜
-        re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
-        re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
-                                                                           self.args.n_agents,
-                                                                           self.args.n_agents)  # (batch_size, seq_len, n_agents, n_agents)
-        # 创建确定接收对象的掩膜（仅接收在自己正态分布区间外的td-error）
-        re_mask_up = (share_list.unsqueeze(-1) >= self.q_up_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
-                                                                                                   self.seq_len,
-                                                                                                   self.args.n_agents,
-                                                                                                   self.args.n_agents))  # (batch_size, seq_len, n_agents, n_agents)
-        re_mask_down = (share_list.unsqueeze(-1) <= self.q_down_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
+        if self.args.receive_version == 0:#直接接收
+            receive_list = torch.zeros(
+                [self.batch_size, self.seq_len, self.args.n_agents,self.args.n_agents]).to(self.args.device)  # 创建一个空矩阵存received_experience
+            # 创建agent索引张量
+            re_agent_indices = th.arange(self.args.n_agents)
+            # 创建禁止向自己分享的掩膜
+            re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
+            re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
+                                                                               self.args.n_agents,
+                                                                               self.args.n_agents)  # (batch_size, seq_len, n_agents, n_agents)
+            re_mask_notself = re_mask_notself.to(self.args.device)
+            # 进行条件赋值
+            receive_list = th.where(re_mask_notself, share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
+                                    receive_list)
+            # 每个agent取其接收值的最大值
+            abs_receive = torch.abs(receive_list)
+            re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
+            receive_list = th.gather(receive_list, dim=3, index=re_max_indices).squeeze(-1)
+            receive_list = receive_list.to(self.args.device)
+        if self.args.receive_version == 1: #正态分布门筛选接收经验
+            gate_down_value = th.zeros((self.batch_size, self.n_agents))
+            gate_up_value = th.zeros((self.batch_size, self.n_agents))
+            self.q_mean, self.q_std, self.q_down_value, self.q_up_value = self.sum_and_sig(masked_q_td_error,
+                                                                                           gate_down_value, gate_up_value)
+
+            receive_list = torch.zeros([self.batch_size, self.seq_len, self.n_agents,self.n_agents]).to(self.args.device)   # 创建一个空矩阵存received_experience
+            # 创建agent索引张量
+            re_agent_indices = th.arange(self.args.n_agents)
+            # 创建禁止向自己分享的掩膜
+            re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
+            re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
+                                                                               self.n_agents,
+                                                                               self.n_agents)  # (batch_size, seq_len, n_agents, n_agents)
+            re_mask_notself = re_mask_notself.to(self.args.device)
+            # 创建确定接收对象的掩膜（仅接收在自己正态分布区间外的td-error）
+            re_mask_up = (share_list.unsqueeze(-1) >= self.q_up_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
                                                                                                        self.seq_len,
-                                                                                                       self.args.n_agents,
-                                                                                                       self.args.n_agents))  # 形状 (batch_size, seq_len, n_agents, n_agents)
-        re_mask_received = torch.logical_or(re_mask_up, re_mask_down)
-        # 进行条件赋值
-        receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(-1),
-                                receive_list.unsqueeze(-1))
-        # 每个agent取其接收值的最大值
-        abs_receive = torch.abs(receive_list)
-        re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
-        receive_list = th.gather(receive_list, dim=3, index=re_max_indices).squeeze(-1)
-        receive_list = receive_list.to(self.args.device)
+                                                                                                       self.n_agents,
+                                                                                                       self.n_agents))  # (batch_size, seq_len, n_agents, n_agents)
+            re_mask_down = (share_list.unsqueeze(-1) <= self.q_down_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
+                                                                                                           self.seq_len,
+                                                                                                           self.n_agents,
+                                                                                                           self.n_agents))  # 形状 (batch_size, seq_len, n_agents, n_agents)
+            re_mask_received = torch.logical_or(re_mask_up, re_mask_down)
+            # 进行条件赋值
+            receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.n_agents),
+                                    receive_list)
+            # 每个agent取其接收值的最大值
+            abs_receive = torch.abs(receive_list)
+            re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
+            receive_list = th.gather(receive_list, dim=3, index=re_max_indices).squeeze(-1)
+            receive_list = receive_list.to(self.args.device)
+        if self.args.receive_version == 2:#基于sigmoid函数的软接收门
+            receive_list = torch.zeros([self.batch_size, self.seq_len, self.n_agents,self.n_agents]).to(self.args.device)  #创建一个receive_list来保存接收的经验
+            # 创建agent索引张量
+            re_agent_indices = th.arange(self.args.n_agents)
+            # 创建禁止向自己分享的掩膜
+            re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
+            re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
+                                                                               self.n_agents,
+                                                                               self.n_agents)  # (batch_size, seq_len, n_agents, n_agents)
+            re_mask_notself = re_mask_notself.to(self.args.device)
+            # 计算接收经验的掩膜
+            re_mask_received = torch.zeros_like(receive_list)
+
+            #扩展
+            share_exp = share_list.unsqueeze(dim=2) # (batch_size, seq_len, 1, n_agents)
+            mean_exp = mean_td_error.unsqueeze(1).unsqueeze(3) #(batch_size, 1, n_agents,1)
+            var_exp = var_td_error.unsqueeze(1).unsqueeze(3)
+            #计算距离
+            td_diff = torch.abs(share_exp - mean_exp)
+            #计算sigmoid输入
+            sigmoid_input = self.args.sigmoid_aphla * (td_diff - self.args.sigmoid_beta * var_exp)
+            #计算接收概率
+            receive_probs = torch.sigmoid(sigmoid_input)
+            # 与随机矩阵比较，判断接收掩膜
+            random_matrix = torch.rand_like(receive_probs)
+            re_mask_received = (random_matrix <= receive_probs)
+
+            # 进行条件赋值
+            receive_list = th.where(re_mask_notself & re_mask_received,
+                                    share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.n_agents),
+                                    receive_list)
+            # 每个agent取其接收值的最大值
+            abs_receive = torch.abs(receive_list)
+            re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
+            receive_list = th.gather(receive_list, dim=3, index=re_max_indices).squeeze(-1)
+            receive_list = receive_list.to(self.args.device)
+
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
         # 链接receive_list和个体TD-error
         received_q_td_error = torch.cat((masked_q_td_error, receive_list), dim=0)
@@ -430,7 +529,7 @@ class INSPIRE_Learner:
                                                                                                        self.args.n_agents))  # 形状 (batch_size, seq_len, n_agents, n_agents)
         re_mask_received = torch.logical_or(re_mask_up, re_mask_down)
         # 进行条件赋值
-        receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(-1),
+        receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.args.n_agents),
                                 receive_list.unsqueeze(-1))
         # 每个agent取其接收值的最大值
         abs_receive = torch.abs(receive_list)

@@ -60,7 +60,7 @@
 
 #### 更新实验环境
 
-1. src/envs/smac_v1/official/starcraft2.py写入：
+1. src/envs/smac_v1/official/starcraft2.py和src/envs/smac_v2/official/starcraft2.py写入：
 
    ```python
        （最后面） 
@@ -74,6 +74,189 @@
                else:
                    terminate.append(1)
            return terminate
+       
+       #后面的部分疑似没有用到
+           def get_obs_agent_kaitu(self, agent_id):
+           """Returns observation for agent_id. The observation is composed of:
+   
+              - agent movement features (where it can move to, height information and pathing grid)
+              - enemy features (available_to_attack, health, relative_x, relative_y, shield, unit_type)
+              - ally features (visible, distance, relative_x, relative_y, shield, unit_type)
+              - agent unit features (health, shield, unit_type)
+   
+              All of this information is flattened and concatenated into a list,
+              in the aforementioned order. To know the sizes of each of the
+              features inside the final list of features, take a look at the
+              functions ``get_obs_move_feats_size()``,
+              ``get_obs_enemy_feats_size()``, ``get_obs_ally_feats_size()`` and
+              ``get_obs_own_feats_size()``.
+   
+              The size of the observation vector may vary, depending on the
+              environment configuration and type of units present in the map.
+              For instance, non-Protoss units will not have shields, movement
+              features may or may not include terrain height and pathing grid,
+              unit_type is not included if there is only one type of unit in the
+              map etc.).
+   
+              NOTE: Agents should have access only to their local observations
+              during decentralised execution.
+           """
+           unit = self.get_unit_by_id(agent_id)
+   
+           move_feats_dim = self.get_obs_move_feats_size()
+           enemy_feats_dim = self.get_obs_enemy_feats_size()
+           ally_feats_dim = self.get_obs_ally_feats_size()
+           own_feats_dim = self.get_obs_own_feats_size()
+   
+           move_feats = np.zeros(move_feats_dim, dtype=np.float32)
+           enemy_feats = np.zeros(enemy_feats_dim, dtype=np.float32)
+           ally_feats = np.zeros(ally_feats_dim, dtype=np.float32)
+           own_feats = np.zeros(own_feats_dim, dtype=np.float32)
+   
+           if unit.health > 0:  # otherwise dead, return all zeros
+               x = unit.pos.x
+               y = unit.pos.y
+               sight_range = self.unit_sight_range(agent_id)
+   
+               # Movement features
+               avail_actions = self.get_avail_agent_actions(agent_id)
+               for m in range(self.n_actions_move):
+                   move_feats[m] = avail_actions[m + 2]
+   
+               ind = self.n_actions_move
+   
+               if self.obs_pathing_grid:
+                   move_feats[
+                       ind : ind + self.n_obs_pathing
+                   ] = self.get_surrounding_pathing(unit)
+                   ind += self.n_obs_pathing
+   
+               if self.obs_terrain_height:
+                   move_feats[ind:] = self.get_surrounding_height(unit)
+   
+               # Enemy features
+               for e_id, e_unit in self.enemies.items():
+                   e_x = e_unit.pos.x
+                   e_y = e_unit.pos.y
+                   dist = self.distance(x, y, e_x, e_y)
+   
+                   if (
+                       e_unit.health > 0
+                   ):  # visible and alive
+                       # Sight range > shoot range
+                       enemy_feats[e_id, 0] = avail_actions[
+                           self.n_actions_no_attack + e_id
+                       ]  # available
+                       enemy_feats[e_id, 1] = dist / sight_range  # distance
+                       enemy_feats[e_id, 2] = (
+                           e_x - x
+                       ) / sight_range  # relative X
+                       enemy_feats[e_id, 3] = (
+                           e_y - y
+                       ) / sight_range  # relative Y
+   
+                       ind = 4
+                       if self.obs_all_health:
+                           enemy_feats[e_id, ind] = (
+                               e_unit.health / e_unit.health_max
+                           )  # health
+                           ind += 1
+                           if self.shield_bits_enemy > 0:
+                               max_shield = self.unit_max_shield(e_unit)
+                               enemy_feats[e_id, ind] = (
+                                   e_unit.shield / max_shield
+                               )  # shield
+                               ind += 1
+   
+                       if self.unit_type_bits > 0:
+                           type_id = self.get_unit_type_id(e_unit, False)
+                           enemy_feats[e_id, ind + type_id] = 1  # unit type
+   
+               # Ally features
+               al_ids = [
+                   al_id for al_id in range(self.n_agents) if al_id != agent_id
+               ]
+               for i, al_id in enumerate(al_ids):
+   
+                   al_unit = self.get_unit_by_id(al_id)
+                   al_x = al_unit.pos.x
+                   al_y = al_unit.pos.y
+                   dist = self.distance(x, y, al_x, al_y)
+   
+                   if (
+                       al_unit.health > 0
+                   ):  # visible and alive
+                       ally_feats[i, 0] = 1  # visible
+                       ally_feats[i, 1] = dist / sight_range  # distance
+                       ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
+                       ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
+   
+                       ind = 4
+                       if self.obs_all_health:
+                           ally_feats[i, ind] = (
+                               al_unit.health / al_unit.health_max
+                           )  # health
+                           ind += 1
+                           if self.shield_bits_ally > 0:
+                               max_shield = self.unit_max_shield(al_unit)
+                               ally_feats[i, ind] = (
+                                   al_unit.shield / max_shield
+                               )  # shield
+                               ind += 1
+   
+                       if self.unit_type_bits > 0:
+                           type_id = self.get_unit_type_id(al_unit, True)
+                           ally_feats[i, ind + type_id] = 1
+                           ind += self.unit_type_bits
+   
+                       if self.obs_last_action:
+                           ally_feats[i, ind:] = self.last_action[al_id]
+   
+               # Own features
+               ind = 0
+               if self.obs_own_health:
+                   own_feats[ind] = unit.health / unit.health_max
+                   ind += 1
+                   if self.shield_bits_ally > 0:
+                       max_shield = self.unit_max_shield(unit)
+                       own_feats[ind] = unit.shield / max_shield
+                       ind += 1
+   
+               if self.unit_type_bits > 0:
+                   type_id = self.get_unit_type_id(unit, True)
+                   own_feats[ind + type_id] = 1
+   
+           agent_obs = np.concatenate(
+               (
+                   move_feats.flatten(),
+                   enemy_feats.flatten(),
+                   ally_feats.flatten(),
+                   own_feats.flatten(),
+               )
+           )
+   
+           if self.obs_timestep_number:
+               agent_obs = np.append(agent_obs,
+                                     self._episode_steps / self.episode_limit)
+   
+           if self.debug:
+               logging.debug("Obs Agent: {}".format(agent_id).center(60, "-"))
+               logging.debug("Avail. actions {}".format(
+                   self.get_avail_agent_actions(agent_id)))
+               logging.debug("Move feats {}".format(move_feats))
+               logging.debug("Enemy feats {}".format(enemy_feats))
+               logging.debug("Ally feats {}".format(ally_feats))
+               logging.debug("Own feats {}".format(own_feats))
+   
+           return agent_obs
+   
+       def get_obs_kaitu(self):
+           """Returns all agent observations in a list.
+           NOTE: Agents should have access only to their local observations
+           during decentralised execution.
+           """
+           agents_obs_kaitu = [self.get_obs_agent_kaitu(i) for i in range(self.n_agents)]
+           return agents_obs_kaitu
    ```
 
 2. 在run/run.py中写入：
@@ -92,7 +275,89 @@
        }
    ```
 
+3. 在episode_runner中新增了一个专用的differrunner，写入：
+
+   ```python
+   第87行加入indi_terminated
+   post_transition_data = {
+                   "actions": cpu_actions,
+                   "reward": [(reward,)],
+                   "terminated": [(terminated != env_info.get("episode_limit", False),)],
+                   "indi_terminated": [self.env.get_indi_terminated()]
+               }
+   ```
+
+4. 在在src/envs/gfootball/FootballEnv.py：
+
+   ```python
+       def get_indi_terminated(self):
+           #differ用的，需要个体存活标签。
+           terminate = []
+           for agent in range(self.n_agents):
+               if self.full_obs["left_team_yellow_card"][agent] == False:
+                   terminate.append(0)
+               else:
+                   terminate.append(1)
+           return terminate
+   ```
+
+   这个官方没做，我们自己做的
+
+5. 在config/.yaml中添加运行参数以使用专用部件：
+
+   scheme:"differ"
+
+   runner:"episode_differ"
+
+#### 我们方法要求的更新
+
+1. 在src/envs/gfootball/FootballEnv.py：
+
+   ```python
+   在init函数中加入了可选输入sight_field=0.2，并添加下面这行：
+   self.sight_field = sight_field #视野范围，自定义
    
+   ```
+
+2. 
+
+3. 在src/runners，添加episode_runner_inspire.py：
+
+   ```python
+   其他地方一样，在87行，改成：
+   post_transition_data = {
+                   "actions": cpu_actions,
+                   "reward": [(reward,)],
+                   "terminated": [(terminated != env_info.get("episode_limit", False),)],
+                   "indi_terminated": [self.env.get_indi_terminated()],
+                   "visibility_matrix":[self.env.get_ally_visibility_matrix()]
+               }
+   ```
+
+4. 在run.py:
+
+   ```python
+       if args.scheme == "inspire":#inspire专用的scheme，硬性规定了单位存活标签信息和可视标签矩阵
+           scheme = {
+               "state": {"vshape": env_info["state_shape"]},
+               "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
+               "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
+               "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
+               "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
+               "reward": {"vshape": (1,)},
+               "terminated": {"vshape": (1,), "dtype": th.uint8},
+               "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},  # 单位存活标签
+               "visibility_matrix": {"vshape": (env_info["n_agents"],), "dtype": th.uint8}, # 可视标签
+           }
+   ```
+
+
+
+在.yaml中加入参数：
+
+scheme = inspire
+
+runner = episode_inspire
 
 ## 运行指令：
 
@@ -104,11 +369,13 @@
 
 （SMACV2）python src/main.py --config=qmix --env-config=sc2_v2_zerg with t_max=20000
 
+(GRF)python3 src/main.py --config=qmix --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400  t_max=20000
 
 
-**运行inspire_qmix_v0:**
 
-（SMACV1）python src/main.py --config=inspire_qmix_v0 --env-config=sc2 with env_args.map_name=2s3z t_max=3005000
+**运行inspire_qmix_v0:** DIFFER+正态分布门版本的ESR
+
+（SMACV1）python src/main.py --config=inspire_qmix_v0 --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
 
 
 
@@ -130,21 +397,33 @@
 
    transformer层消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 transformer_n_layers=1
 
-   transformer头消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=3005000 transformer_n_head=1
+   transformer头消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 transformer_n_head=1
+
+   embedding_dim消融：python src/main.py --config=differ_qmix_transformertest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 transformer_embedding_dim=128
 
    正在测试
+
+3. ESR算法的分支改进：
+
+   经验分享部分：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=1
+
+   python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=2 receive_version=0
+
+   版本1是只对自己的分布做概率密度函数，版本2是对所有人的分布各算一次概率密度函数
+
+   经验接收部分：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=1 receive_version=1
+
+   版本0是直接接收，版本1是正态分布门，版本2是sigmoid门
+   
+   
 
 ## 目前在跑
 
 **目前在跑（12服务器）：**
 
-INSPIRE:ESR+transformer_agent:在INSPIRE/1
+重新跑目前参数的transformer+differ，确认一下胜率不是低概率事件：transformer/1
 
-transformer参数消融：
-
-head=4在transformer/2，head=8在transformer/3
-
-layer=3在transformer/4
+尝试运行分享2+接收0：esr/1，分享2+接收2：esr/2
 
 ## 改进思路
 
@@ -158,13 +437,11 @@ layer=3在transformer/4
 
 
 
-1. 每个智能体对经验批次过transformer生成固定批次的embedding，然后分享embedding。接收端接收embedding后进行处理。可能可以提取和构建新的信息来帮助智能体的经验。对自己的经验可以直接用。可以削减通信频次。
-
-   目前来看是最不靠谱的改进思路，建议回炉。
+1. 每个智能体对经验批次过transformer生成固定批次的embedding，然后分享embedding。接收端接收embedding后进行处理。可以削减通信频次。
 
    **存在的问题：**
 
-   1. 在工程实践中，智能体实际分享的是TD-ERROR而不是整个经验，而且一次训练用的是batch_size个轨迹的batch，并不是实时交互和分享的。
+   1. 在工程实践中，智能体实际分享的是TD-ERROR而不是整个经验，而且一次训练用的是batch_size个轨迹的batch，并不是实时交互和分享的。——已忽略
    3. 目前agent网络的输入是整个显式数据构成的episode_batch的每一步。而且input_size是锁死的，同时接收embedding和state很可能造成训练的混乱。直接使用embedding进行训练，也会导致训练的结果不能直接用于与环境的交互中，这是本末倒置的。——已解决，将agent网络换成了transformer。
    4. 接收embedding后解压缩为新的经验，可行性很低。而且训练工程中，所有agent的数据都在一个批次内，真有这个需要直接把完整的数据送过去就好了。——已忽略，不进行解压缩。
    
@@ -204,9 +481,55 @@ layer=3在transformer/4
    存在的问题：
 
    1. 我们可以考虑训练一个网络来为经验打分，判断经验是否值得分享。但是具体网络怎么设置还有待商榷。——目前不做
+
    2. 或许可以仿照PER的采样机制，让极端值有高概率被分享，但是一般的值也有一定概率被分享。被分享的概率取决于值的概率。
-      1. 设置一个正态分布反函数的概率密度函数，根据TD-error进行分享。距离均值越远，分享概率越大。
-      2. 这样做了之后经验接收的部分也一定要进行配套改进，比如说高于正态分布阈值的一定接收，低于阈值的有概率接收。
+      1. 设置一个正态分布反函数的概率密度函数，根据TD-error进行分享。距离均值越远，分享概率越大。——已实现，version1
+
+         设 TD-error 为 $x$，均值为 $\mu$，方差为 $\sigma^2$，温度系数为 $T$，最小稳定项为 $\epsilon$，则概率密度函数计算过程为：
+         $$
+         P(x) = \frac{1}{\sqrt{2\pi (T^2 \cdot \sigma^2)}} \exp\left( -\frac{(x - \mu)^2}{2T^2 \cdot \sigma^2} \right)
+         $$
+         对概率密度函数进行变换：
+         $$
+         P'(x) = -P(x)
+         $$
+
+         $$
+         P''(x) = P'(x) - \min(P'(x))
+         $$
+
+         $$
+         \tilde{P}(x) = \frac{P''(x)}{\sum_{t=1}^{L} P''(x_t) + \epsilon}
+         $$
+
+         最终得到满足“远离均值误差越大，概率越高”的归一化概率分布。
+
+      2. 新增一种可行性，计算概率密度函数的时候对所有智能体的正态分布都计算一遍求和，这样可以说明联合分布下的分享价值。——已实现，version2
+
+         设 $x_{b,t,i}$ 为第 $b$ 个 batch，第 $t$ 个时间步，第 $i$ 个 agent 的 TD-error 值，
+         $\mu_j$ 和 $\sigma_j^2$ 分别为第 $j$ 个 agent 的 TD-error 均值与方差，
+         $T$ 为温度参数，$\epsilon$ 为最小稳定项。
+
+         每个 agent 的概率密度函数定义为：
+         $$
+         P_j(x_{b,t,i}) = \frac{1}{\sqrt{2\pi (T^2 \cdot \sigma_j^2)}} \exp\left( -\frac{(x_{b,t,i} - \mu_j)^2}{2 T^2 \cdot \sigma_j^2} \right)
+         $$
+         经过负变换与平移：
+         $$
+         \tilde{P}_j(x_{b,t,i}) = -P_j(x_{b,t,i}) - \min_{b,t,i}( -P_j(x_{b,t,i}) )
+         $$
+         将所有 agent 的变换后概率加和：
+         $$
+         S(x_{b,t,i}) = \sum_{j=1}^{n} \tilde{P}_j(x_{b,t,i})
+         $$
+         最终的归一化概率分布为：
+         $$
+         \text{FinalProb}(x_{b,t,i}) = \frac{S(x_{b,t,i})}{\sum_{t'=1}^{L} S(x_{b,t',i}) + \epsilon}
+         $$
+
+   3. 这样做了之后经验接收的部分也一定要进行配套改进，比如说高于正态分布阈值的一定接收，低于阈值的有概率接收。
+
+      增加了sigmoid函数门：Preceive=σ(α⋅(∣e−μ∣−β⋅σ))。其中前面的σ()是sigmoid函数。aphla是敏感度控制因子，aphla越大，接收概率随td-error距离的变化越大。∣e−μ∣是对均值的距离，σ是方差。β是缩放因子，控制接收的严苛程度。
 
 3. 共享的频次可以通过经验采样的变化熵来判断，熵越大频次越高。
 
@@ -238,25 +561,33 @@ layer=3在transformer/4
 
 ### stage1：尝试添加本科毕设优化过的代码：done
 
-1. 新增了config/algs/inspire_qmix.yaml。新增了src/learners/qmix_newdiffer_test.py。并在src/learners/_init_.py加入对应导入代码。
+1. 新增了config/algs/inspire_qmix.yaml。新增了src/learners/qmix_newdiffer_test.py。并在src/learners/_init_.py加入对应导入代码。——done
 
-2. 开始尝试把本科毕设优化过的经验分享、经验接收代码调整一下，加入newdiffer
+2. 开始尝试把本科毕设优化过的经验分享、经验接收代码调整一下，加入newdiffer——done
 
-   a. 完成了上下限计算和经验分享的code
+   a. 完成了上下限计算和经验分享的code——done
    
-   b. 完成了经验接收的code
+   b. 完成了经验接收的code——done
 
 ### stage2:尝试设计一个基于transformer的agent网络：done，需要调优参数
 
-1. 添加了src/modules/agents/trnasformer_agent.py。并在init.py添加了导入语句
+1. 添加了src/modules/agents/trnasformer_agent.py。并在init.py添加了导入语句——done
 
 ### stage3:尝试实现idea1：基本可以跑了，只是还需要调参
 
-1. 创建一个专用controller
-2. 在QMIX上实现了SUPER
-3. 设置v0版本的inspire：使用RNN_agent，用的是基于正态分布的ESR算法
+1. 创建一个专用controller——done
+2. 在QMIX上实现了SUPER——done
+3. 设置v0版本的inspire：使用RNN_agent，用的是基于正态分布的ESR算法——done
+4. 调优参数以达到理想效果
 
 ### stage4：尝试实现Idea3
+
+TODOlist:
+
+1. 修改概率密度函数为倒过来的正态分布，保证极端的有更高概率分享——done
+2. 对应修改经验接收部分，确保不会把不极端的全拦截下来
+3. 配置公用服务器的环境以备用。环境配置好了，代码要看看在gpu下不在一个device的问题。——done
+4. 实现对所agent的正态分布各计算一次概率密度函数并求和。——done
 
 ## idea测试
 
@@ -280,7 +611,7 @@ episode_runner的话3005000轮次即可，如果用pareall_runner的话可能更
 
 {'DIFFER(baseline)': 0.9861111111111112。DIFFER基线。
 
-'DIFFER_Transformer': 0.9852216748768472。跑错了，这个还是DIFFER基线。
+
 
 'INSPIRE_ESR_using_normal_distribution': 0.9863013698630136。基于正态分布的经验选择与分享算法+DIFFER效果。？
 
@@ -292,27 +623,230 @@ episode_runner的话3005000轮次即可，如果用pareall_runner的话可能更
 
 ![](D:\study_work\python\New_Differ\picture\ablition-transformer_test-2s3z.jpg)
 
-head消融（多头注意力头数，transformer_n_head）成绩（2005000轮次）：
+**head消融（多头注意力头数，transformer_n_head）成绩（2005000轮次）：**
 
 | 类型           | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
 | -------------- | ------------------ | -------------------------------- | ------------------ |
 | head=1,layer=2 | 0.9418604651162791 | 16 hours, 57 minutes, 15 seconds | 0.65168            |
 | head=2,layer=2 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds | 1.082992           |
-| head=4,layer=2 |                    |                                  |                    |
-| head=8,layer=2 |                    |                                  |                    |
+| head=4,layer=2 | 0.9108910891089109 | 19 hours, 24 minutes, 27 seconds | 1.092767           |
+| head=8,layer=2 | 0.9086538461538461 | 19 hours, 15 minutes, 07 seconds | 1.092928           |
 
-head的值必须可以整除embedding_dim，所以一般设置为2、4、8的倍数。在不想用多头注意力时，可以令head为1.
+head的值必须可以整除embedding_dim，所以一般设置为2、4、8的倍数。在不想用多头注意力时，可以令head为1。
 
-layer消融（2005000轮次）
+根据消融结果，选择head=2就可以了。
 
-| 类型           | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
-| -------------- | ------------------ | -------------------------------- | ------------------ |
-| head=2,layer=1 | 0.9128205128205128 | 13 hours, 7 minutes, 5 seconds   | 1.16314            |
-| head=2,layer=2 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds | 1.082992           |
-| head=3,layer=3 |                    |                                  |                    |
-| head=4,layer=4 |                    |                                  |                    |
+**layer消融（2005000轮次）**
+
+| 类型           | 最优值             | 运行时间                                | 收敛轮次（百万轮） |
+| -------------- | ------------------ | --------------------------------------- | ------------------ |
+| head=2,layer=1 | 0.9128205128205128 | 13 hours, 7 minutes, 5 seconds          | 1.16314            |
+| head=2,layer=2 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds        | 1.082992           |
+| head=3,layer=3 | 0.9015544041450777 | 22 hours, 28 minutes, 34 seconds        | 0.882727           |
+| head=4,layer=4 | 0.9033816425120773 | 1 days, 1 hours, 27 minutes, 51 seconds | 1.052848           |
+
+layer表示transformer_encoder由几个transformer_layer构成。以目前试验结果，layer=2是效果最好的。
+
+**embedding_dim消融（2005000轮次）**
+
+| 类型              | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| ----------------- | ------------------ | -------------------------------- | ------------------ |
+| embedding_dim=64  | 0.9029126213592233 | 17 hours, 21 minutes, 13 seconds | 1.644216           |
+| embedding_dim=96  | 0.9234449760765551 | 17 hours, 54 minutes, 31 seconds | 1.624229           |
+| embedding_dim=112 | 0.937799043062201  | 17 hours, 49 minutes, 9 seconds  | 1.042666           |
+| embedding_dim=128 | 0.9532710280373832 | 16 hours, 55 minutes, 39 seconds | 1.08299            |
+| embedding_dim=144 | 0.8916256157635468 | 18 hours, 11 minutes, 11 seconds | 1.253238           |
+| embedding_dim=160 | 0.8995215311004785 | 19 hours, 58 minutes, 7 seconds  | 1.51366            |
+
+embedding_dim表示由输入数据经过线性层生成的embedding向量维度数。为便于多头注意力机制运行，一般设置为2,4,8的倍数。目前是以32为间隔进行消融实验。还测试了一下112,144的效果，但是都不太好。
+
+### ESR测试
+
+原版ESR：正态分布门版本的经验分享+经验接收
+
+新版经验分享：版本1是只对自己的分布做概率密度函数，版本2是对所有人的分布各算一次概率密度函数
+
+新版经验接收：版本0是直接接收，版本1是正态分布门，版本2是sigmoid门
+
+| 类型                | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| ------------------- | ------------------ | -------------------------------- | ------------------ |
+| 原版ESR             | 0.9768518518518519 | 13 hours, 43 minutes, 13 seconds | 1.794756           |
+| 原版ESR+Transformer | 0.8967136150234741 | 19 hours, 24 minutes, 43 seconds | 0.892317           |
+| 经验分享1+经验接收0 | 0.9095238095238095 | 17 hours, 53 minutes, 46 seconds | 1.112817           |
+| 经验分享1+经验接收1 | 0.9014084507042254 | 18 hours, 5 minutes, 10 seconds  | 1.433636           |
+| 经验分享1+经验接收2 | 0.8796296296296297 | 18 hours, 35 minutes, 49 seconds | 1.423853           |
+| 经验分享2+经验接收2 | 0.8711340206185567 | 15 hours, 29 minutes, 56 seconds | 0.822215           |
+| 经验分享2+经验接收1 | 0.909952606635071  | 19 hours, 31 minutes, 25 seconds | 1.935178           |
+| 经验分享2+经验接收0 | 0.908675799086758  | 16 hours, 49 minutes, 21 seconds | 1.674556           |
+
+分享1+接收2可以弃用了。分享2可以用，但是感觉参数要仔细调整一下，起码不能比原版ESR差太多。目前打算在分享2+接收0的基础上进行调优。先看看实验结果怎么样。目前确认在经验分享2+经验接收0的基础上进行调优。
+
+## 对照实验设计
+
+运行设备：2080ti或3090.
+
+实验环境：SMACV1,SMACV2,GRF
+
+实验条件：奖励正常+奖励稀疏
+
+### 实验地图选择
+
+| 实验环境 | 地图名                     | 地图难度/简介                    |
+| -------- | -------------------------- | -------------------------------- |
+| SMAC     | 2s3z                       | hard                             |
+| SMAC     | 3s_vs_3z                   | hard                             |
+| SMAC     | 10m_vs_11m                 | super hard                       |
+| SMAC     | 27m_vs_30m                 | super hard                       |
+| GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |
+| GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |
+| SMACV2   | terran_5_vs_5              | 人族随机对战，5_vs_5             |
+| SMACV2   | terran_10_vs_10            | 人族随机对战，10_vs_10           |
+
+在奖励正常和奖励稀疏下各跑一次，所以一共16个曲线图
+
+### 对照算法
+
+1. PER：主要基线，直接对经验做PER。已经实现。已经有SMAC 3s_vs_3z、SMAC 10m_vs_11m、GRF academy_corner、GRF academy_counterattack_hard在奖励正常和奖励稀疏下的数据。
+
+   T. Schaul, J. Quan, I. Antonoglou, and D. Silver, “Prioritized Experi
+
+   ence Replay,” in *4th International Conference on Learning Represen*
+
+   *tations, ICLR 2016, San Juan, Puerto Rico, May 2-4, 2016*, 2016.
+
+2. DIFFER：主要基线。已实现。已经有SMAC 3s_vs_3z、SMAC 10m_vs_11m、GRF academy_corner、GRF academy_counterattack_hard在奖励正常和奖励稀疏下的数据。
+
+   X. Hu, J. Zhao, W. Zhou, R. Feng, and H. Li, “DIFFER: Decomposing
+
+   Individual Reward for Fair Experience Replay in Multi-Agent Rein
+
+   forcement Learning,” in *Annual Conference on Neural Information*
+
+   *Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA,*
+
+   *December 10 - 16, 2023*, 2023.
+
+3. SUPER：主要基线，已实现。已经有SMAC 3s_vs_3z、SMAC 10m_vs_11m、GRF academy_corner、GRF academy_counterattack_hard在奖励正常和奖励稀疏下的数据。
+
+   M. Gerstgrasser, T. Danino, and S. Keren, “Selectively Sharing Ex
+
+   periences Improves Multi-Agent Reinforcement Learning,” in *Inter*
+
+   *national Conference on Autonomous Agents and Multiagent Systems,*
+
+   *AAMAS 2023, London, United Kingdom, 29 May 2023 - 2 June 2023*,
+
+   2023, pp. 2433–2435.
+
+4. 我们的方法
+5. 选择1-2个2024年算法
 
 
 
+备选的2024年算法：
 
+1. 2024-CCFA-ICML Individual Contributions as Intrinsic Exploration Scaffolds for Multi-agent Reinforcement Learning **使用个人奖励鼓励探索**
+   解决：提出个体贡献奖励的内在探索框架（ICES），在全局角度评估每个agent的贡献来激励探索。ICES使用贝叶斯惊讶（用带两个编码器的CVAE实现）构造探索框架辅助训练。分离探索policy和实际policy，使探索policy可以使用全局信息训练。
+   代码：https://github.com/LXXXXR/ICES.
 
+   优势：完整代码，疑似符合PYMARL工程结构。在GRF和SMAC都跑过。看起来是最容易实现的代码
+
+2. 2024-ICLR ATTENTION-GUIDED CONTRASTIVE ROLE REPRESENTATIONS FOR MULTI-AGENT REINFORCEMENT LEARNING **引入对比学习促进信用分配**
+
+   从角色和agent的相关性得到启发，提出ACORM。引入互信息最大化来形式化角色表示学习，推导对比学习目标，并近似负对分布。利用attention机制在全局价值分解中学习角色特征，引导智能体在角色空间中协调来产生信用分配。
+
+   [GitHub - NJU-RL/ACORM](https://github.com/NJU-RL/ACORM)
+
+   优势：在GRF和SMAC都跑过。有完整代码
+
+   劣势：代码跟pymarl不是同一个框架，移植比较费时间
+
+3. 2024-CCFA-NIPS Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning**利用个性化掩膜实现多样化参数共享**
+
+   提出kaleidscope，为不同的agent维护一组公共参数和多组可学习的mask来进行参数共享。通过鼓励mask间的差异促进policy的多样性。
+
+   代码：https://github.com/LXXXXR/Kaleidoscope
+
+   优势：完整代码，疑似符合PYMARL工程结构。
+
+   劣势：没在GRF跑过，如果他需要在GRF针对性设计实现的话，在GRF的表现可能很差
+
+4. 2024-CCFA-ICML LAGMA: LAtent Goal-guided Multi-Agent Reinforcement Learning  **潜在目标引导协作**
+   解决：提出潜在目标引导的MARL（LAGMA），在潜在空间中生成目标来达到轨迹，提供一个潜在的目标一道奖励来向参考轨迹过度。使用VQ-VAE进行量化嵌入空间改造，将状态投影到量化向量空间。使用VQ密码本生成到达目标的参考轨迹。使用潜在目标来引导内在奖励的生成。
+   代码：https://github.com/aailabkaist/LAGMA
+
+   优势：代码完整，在GRF和SMAC都跑过
+
+   劣势：代码针对每一个他用到的地图设计了专门的VAE超参数，这很可能意味着算法的鲁棒性可能像MASER一样极差，需要对每个地图单独调优。
+
+### 时间估计
+
+PER，DIFFER，SUPER：需要运行4+4，8次
+
+我们的方法：需要运行8+8,16次
+
+新增对照算法：每个需要运行8+8,16次
+
+总共需要运行至少56-72次。按以前的经验，设一个服务器可以同时运行四次，运行一次需要17小时，则总共需要约238h-306h，即9天—14天。统计不包括成功实现PER，成功运行算法和成功移植算法到PYMARL的时间。不包括两个批次运行之间的操作时间和延误时间。
+
+### 实验结果记录
+
+**SMAC-奖励正常**
+
+| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m | 27m_vs_30m |
+| ---------- | ---- | -------- | ---------- | ---------- |
+| PER        |      |          |            |            |
+| SUPER      |      |          |            |            |
+| DIFFER     |      |          |            |            |
+| 我们的方法 |      |          |            |            |
+|            |      |          |            |            |
+
+**SMAC-奖励稀疏**
+
+| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m | 27m_vs_30m |
+| ---------- | ---- | -------- | ---------- | ---------- |
+| PER        |      |          |            |            |
+| SUPER      |      |          |            |            |
+| DIFFER     |      |          |            |            |
+| 我们的方法 |      |          |            |            |
+|            |      |          |            |            |
+
+**GRF-奖励正常**
+
+| 算法       | academy_corner | academy_counterattack_hard |
+| ---------- | -------------- | -------------------------- |
+| PER        |                |                            |
+| SUPER      |                |                            |
+| DIFFER     |                |                            |
+| 我们的方法 |                |                            |
+|            |                |                            |
+
+**GRF-奖励稀疏**
+
+| 算法       | academy_corner | academy_counterattack_hard |
+| ---------- | -------------- | -------------------------- |
+| PER        |                |                            |
+| SUPER      |                |                            |
+| DIFFER     |                |                            |
+| 我们的方法 |                |                            |
+|            |                |                            |
+
+**SMACV2-奖励正常**
+
+| 算法       | terran_5_vs_5 | terran_10_vs_10 |
+| ---------- | ------------- | --------------- |
+| PER        |               |                 |
+| SUPER      |               |                 |
+| DIFFER     |               |                 |
+| 我们的方法 |               |                 |
+|            |               |                 |
+
+**SMACV2-奖励稀疏**
+
+| 算法       | terran_5_vs_5 | terran_10_vs_10 |
+| ---------- | ------------- | --------------- |
+| PER        |               |                 |
+| SUPER      |               |                 |
+| DIFFER     |               |                 |
+| 我们的方法 |               |                 |
+|            |               |                 |

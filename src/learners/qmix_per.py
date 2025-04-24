@@ -9,7 +9,7 @@ from torch.optim import RMSprop
 from ER.PER.prioritized_memory import PER_Memory
 
 
-class INSPIRE_Learner:
+class PER_Learner:
     def __init__(self, mac, scheme, logger, args):
         self.args = args
         self.mac = mac
@@ -101,9 +101,6 @@ class INSPIRE_Learner:
 
         # Normal L2 loss, take mean over actual data。这个是mix网络的loss。
         mixer_loss = (masked_td_error ** 2).sum() / mask.sum()
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #以下是DIFEFR独有的改进部分
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
         # Optimise。优化部分
         self.mixer_optimiser.zero_grad()
@@ -140,11 +137,10 @@ class INSPIRE_Learner:
         masked_q_td_error = q_td_error * q_mask
 
         #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #第0轮改进：基于正态分布的经验分享与接收算法
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        if self.args.use_ESR_based_on_normal_distribution:#使用基于正态分布的经验分享与接收算法来进行经验分享
-            masked_q_td_error,q2_mask = self.ESR_using_normal_distribution(
-                masked_q_td_error)  #注意，会覆盖原有的masked_q_td_error。不过后续运算过程加不加这个函数都一样
+        #基于正态分布的经验分享与接收算法，PER忽略这一步，直接使用PER采样即可
+        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
+        masked_q_td_error = masked_q_td_error
+        q2_mask = q_mask
         #——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 
@@ -276,68 +272,6 @@ class INSPIRE_Learner:
         down_value = each_batch_mean - each_batch_std
         up_value = each_batch_mean + each_batch_std
         return each_batch_mean, each_batch_std, down_value, up_value
-    def ESR_using_normal_distribution(self,masked_q_td_error):
-        #函数：基于正态分布实现选择性的经验分享和接收算法
-        # 输入：masked_q_td_error，掩膜处理后的智能体个体TD-erorr矩阵
-        # 输出：received_q_td_error，masked_q_td_error和接收经验列表receive_list的组合
-        #      q_mask:掩膜，记录有效位置
-
-        # 获取batch_size和seq_len的值
-
-        self.batch_size = masked_q_td_error.shape[0]
-        self.seq_len = masked_q_td_error.shape[1]
-        # 计算正态分布门的上下限
-        gate_down_value = th.zeros((self.batch_size, self.args.n_agents))
-        gate_up_value = th.zeros((self.batch_size, self.args.n_agents))
-        self.q_mean, self.q_std, self.q_down_value, self.q_up_value = self.sum_and_sig(masked_q_td_error,
-                                                                                       gate_down_value, gate_up_value)
-
-        # 修改上下限的规格，将第三维复制masked_q_td_error第二维size数
-        # 并修改格式和masked_q_td_error一致，以便于后续计算
-        q_up_value_shaped = self.q_up_value.unsqueeze(1).repeat(1, self.seq_len, 1)
-        q_down_value_shaped = self.q_down_value.unsqueeze(1).repeat(1, self.seq_len, 1)
-
-        # 计算共享tderror的清单
-        masked_q_td_error_clone = masked_q_td_error.clone().detach()  # 复制一下操作以防更改原值
-        # 计算掩膜，当tderror在上下限之外的时候，掩膜为1，其余为0
-        share_gate_mask = torch.logical_or(masked_q_td_error_clone >= q_up_value_shaped,
-                                           masked_q_td_error_clone <= q_down_value_shaped)
-        share_list = masked_q_td_error * share_gate_mask  # 使用掩膜生成分享清单
-
-        # 计算接收td-error的清单
-        receive_list = torch.zeros([self.batch_size, self.seq_len, self.args.n_agents]).to(self.args.device)  # 创建一个空矩阵存received_experience
-        # 创建agent索引张量
-        re_agent_indices = th.arange(self.args.n_agents)
-        # 创建禁止向自己分享的掩膜
-        re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
-        re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
-                                                                           self.args.n_agents,
-                                                                           self.args.n_agents).to(self.args.device)  # (batch_size, seq_len, n_agents, n_agents)
-        # 创建确定接收对象的掩膜（仅接收在自己正态分布区间外的td-error）
-        re_mask_up = (share_list.unsqueeze(-1) >= self.q_up_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
-                                                                                                   self.seq_len,
-                                                                                                   self.args.n_agents,
-                                                                                                   self.args.n_agents))  # (batch_size, seq_len, n_agents, n_agents)
-        re_mask_down = (share_list.unsqueeze(-1) <= self.q_down_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
-                                                                                                       self.seq_len,
-                                                                                                       self.args.n_agents,
-                                                                                                       self.args.n_agents))  # 形状 (batch_size, seq_len, n_agents, n_agents)
-        re_mask_received = torch.logical_or(re_mask_up, re_mask_down)
-        # 进行条件赋值
-        receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.args.n_agents),
-                                receive_list.unsqueeze(-1))
-        # 每个agent取其接收值的最大值
-        abs_receive = torch.abs(receive_list)
-        re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
-        receive_list = th.gather(receive_list, dim=3, index=re_max_indices).squeeze(-1)
-        receive_list = receive_list.to(self.args.device)
-
-        # 链接receive_list和个体TD-error
-        received_q_td_error = torch.cat((masked_q_td_error, receive_list), dim=0)
-
-        #计算掩膜q_mask，标识非0值位置
-        q_mask = received_q_td_error != 0
-        return received_q_td_error,q_mask
 
     def _update_targets(self):
         self.target_mac.load_state(self.mac)
