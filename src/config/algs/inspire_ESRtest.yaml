@@ -19,7 +19,7 @@ target_update_interval: 200
 
 # use the Q_Learner to train
 agent_output_type: "q"
-learner: "inspire_learner" #Differ的QMIX版本
+learner: "inspire_learner_v1" #Differ的QMIX版本
 double_q: True
 mixer: "qmix"
 mixing_embed_dim: 32
@@ -59,8 +59,8 @@ ESR_selected_ratio: 0.05  #ESR采样比例
 ESR_selected_ratio_start: 0.1  #ESR采样比例的起始值
 ESR_selected_ratio_end: 0.5 #ESR采样比例的最终值
 ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
-probabilities_version: 1 #概率密度函数的版本,1,2
-receive_version: 1 #经验接收函数的版本,0,1,2
+probabilities_version: 2 #概率密度函数的版本,1,2
+receive_version: 0 #经验接收函数的版本,0,1,2
 sigmoid_aphla: 1.0 #receive_version2,sigmoid的aphla参数，控制均值距离对接收概率的灵敏度。aphla越大，偏离均值的aphla接收概率就越大
 sigmoid_beta:  0.5 #receive_version2,sigmoid的beta参数，控制对接收经验的宽松度。beta越大，对接收经验的距离要求就越严格。
 

@@ -363,6 +363,30 @@ runner = episode_inspire
 
 目前在12服务器运行。
 
+### 对照算法
+
+注意：跑GRF的时候每个地图都要对一下num_agents和time_limit两个参数，不然结果会有问题
+
+super：python src/main.py --config=super_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+per：python src/main.py --config=per_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+differ(qmix版本，用在smac)：python src/main.py --config=differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+differ(vdn版本，用在grf)：python src/main.py --config=differ_vdn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000
+
+qmix: python src/main.py --config=qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+
+
+根据运行环境做修改：
+
+1. SMACV1：--env-config=sc2 with env_args.map_name=地图名
+2. SMACV2：--env-config=sc2_v2_zerg(地图名) with 。SMACV2是在args/envs里面的三个sc2_v2_文件里面调参数的，也可以每个地图单独调好然后保存，到时候改一下--env-config参数就可以调用到对应的
+3. GRF:-env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 。换地图的时候要自己查一下map_name对应的num_agents和time_limit两个参数并填上。
+
+### 方法测试
+
 **differ_qmix版本，用的episode_runner:**
 
 （SMACV1）python src/main.py --config=differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=20000
@@ -415,15 +439,21 @@ runner = episode_inspire
 
    版本0是直接接收，版本1是正态分布门，版本2是sigmoid门
    
+   参数消融部分：
+   
+   ESR_selected_ratio_end：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 ESR_selected_ratio_end=0.4
+   
    
 
 ## 目前在跑
 
 **目前在跑（12服务器）：**
 
-重新跑目前参数的transformer+differ，确认一下胜率不是低概率事件：transformer/1
+ESR_selected_ratio_end：0.8在
 
-尝试运行分享2+接收0：esr/1，分享2+接收2：esr/2
+**目前在跑（10服务器）：**
+
+ESR_selected_ratio_end：=0.4-0.7在/ESR_test/1-4
 
 ## 改进思路
 
@@ -578,16 +608,33 @@ runner = episode_inspire
 1. 创建一个专用controller——done
 2. 在QMIX上实现了SUPER——done
 3. 设置v0版本的inspire：使用RNN_agent，用的是基于正态分布的ESR算法——done
-4. 调优参数以达到理想效果
+4. 调优参数以达到理想效果——done
 
 ### stage4：尝试实现Idea3
 
 TODOlist:
 
 1. 修改概率密度函数为倒过来的正态分布，保证极端的有更高概率分享——done
-2. 对应修改经验接收部分，确保不会把不极端的全拦截下来
+2. 对应修改经验接收部分，确保不会把不极端的全拦截下来——done，但是sigmoid门效果奇差
 3. 配置公用服务器的环境以备用。环境配置好了，代码要看看在gpu下不在一个device的问题。——done
 4. 实现对所agent的正态分布各计算一次概率密度函数并求和。——done
+5. 在2+0的基础上进行参数消融，尝试改进胜率
+
+### stage5：尝试实现idea2
+
+1. 在starcraft和grf实现visiblity_matrix的实现 ——done
+2. 实现专用的runner和scheme ——done
+3. learner将接受的visiblity_matrix还原成01的bool矩阵 ——done
+4. 将visiblity_matrix处理成掩膜，加入经验接收部分 ——done
+5. 参数消融
+
+### stage6:尝试实现idea4
+
+1. 阅读信息熵相关代码，思考可行方案
+2. 将grf特化过的VDN-differ加入工程，QMIX-DIFFER表现可能很差
+3. 尝试添加24年算法，目前有可能实现的有
+   1. Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning（方学长用过了）
+   2. Individual Contributions as Intrinsic Exploration Scaffolds for Multi-agent Reinforcement Learning
 
 ## idea测试
 
@@ -681,6 +728,18 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 
 分享1+接收2可以弃用了。分享2可以用，但是感觉参数要仔细调整一下，起码不能比原版ESR差太多。目前打算在分享2+接收0的基础上进行调优。先看看实验结果怎么样。目前确认在经验分享2+经验接收0的基础上进行调优。
 
+#### 参数消融测试
+
+ESR_selected_ratio_end：采样比例的终止值，0-1
+
+| 类型                       | 最优值 | 运行时间 | 收敛轮次（百万轮） |
+| -------------------------- | ------ | -------- | ------------------ |
+| ESR_selected_ratio_end=0.4 |        |          |                    |
+| ESR_selected_ratio_end=0.5 |        |          |                    |
+| ESR_selected_ratio_end=0.6 |        |          |                    |
+| ESR_selected_ratio_end=0.7 |        |          |                    |
+| ESR_selected_ratio_end=0.8 |        |          |                    |
+
 ## 对照实验设计
 
 运行设备：2080ti或3090.
@@ -694,12 +753,12 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 | 实验环境 | 地图名                     | 地图难度/简介                    |
 | -------- | -------------------------- | -------------------------------- |
 | SMAC     | 2s3z                       | hard                             |
-| SMAC     | 3s_vs_3z                   | hard                             |
+| SMAC     | MMM2                       | super hard                       |
 | SMAC     | 10m_vs_11m                 | super hard                       |
 | SMAC     | 27m_vs_30m                 | super hard                       |
 | GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |
 | GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |
-| SMACV2   | terran_5_vs_5              | 人族随机对战，5_vs_5             |
+| SMACV2   | terran_10_vs_11            | 人族随机对战，10_vs_11           |
 | SMACV2   | terran_10_vs_10            | 人族随机对战，10_vs_10           |
 
 在奖励正常和奖励稀疏下各跑一次，所以一共16个曲线图
@@ -738,6 +797,8 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 
    2023, pp. 2433–2435.
 
+3. QMIX
+
 4. 我们的方法
 5. 选择1-2个2024年算法
 
@@ -761,7 +822,7 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 
    劣势：代码跟pymarl不是同一个框架，移植比较费时间
 
-3. 2024-CCFA-NIPS Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning**利用个性化掩膜实现多样化参数共享**
+3. 2024-CCFA-NIPS Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning**利用个性化掩膜实现多样化参数共享**。找方文浩
 
    提出kaleidscope，为不同的agent维护一组公共参数和多组可学习的mask来进行参数共享。通过鼓励mask间的差异促进policy的多样性。
 

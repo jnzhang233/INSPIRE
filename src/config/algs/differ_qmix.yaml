@@ -8,6 +8,7 @@ epsilon_finish: 0.05
 epsilon_anneal_time: 50000
 
 runner: "episode_differ"
+scheme: "differ"
 
 buffer_size: 5000
 
@@ -16,7 +17,7 @@ target_update_interval: 200
 
 # use the Q_Learner to train
 agent_output_type: "q"
-learner: "q_divide_learner" #Differ的QMIX版本
+learner: "qmix_differ" #Differ的QMIX版本
 double_q: True
 mixer: "qmix"
 mixing_embed_dim: 32

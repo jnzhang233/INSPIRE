@@ -121,6 +121,7 @@ def run_sequential(args, logger):
             args.agent_own_state_size = env_info["state_ally_feats_size"]
 
     # Default/Base scheme
+
     scheme = {
         "state": {"vshape": env_info["state_shape"]},
         "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
@@ -130,29 +131,30 @@ def run_sequential(args, logger):
         "reward": {"vshape": (1,)},
         "terminated": {"vshape": (1,), "dtype": th.uint8}
     }
-    if args.scheme == "differ":#differ专用的scheme，硬性规定了单位存活标签信息
-        scheme = {
-            "state": {"vshape": env_info["state_shape"]},
-            "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
-            "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
-            "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
-            "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
-            "reward": {"vshape": (1,)},
-            "terminated": {"vshape": (1,), "dtype": th.uint8},
-            "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},  # DIFFER特有的
-        }
-    if args.scheme == "inspire":#inspire专用的scheme，硬性规定了单位存活标签信息和可视标签矩阵
-        scheme = {
-            "state": {"vshape": env_info["state_shape"]},
-            "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
-            "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
-            "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
-            "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
-            "reward": {"vshape": (1,)},
-            "terminated": {"vshape": (1,), "dtype": th.uint8},
-            "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},  # 单位存活标签
-            "visibility_matrix": {"vshape": (env_info["n_agents"],), "dtype": th.uint8}, # 可视标签
-        }
+    if hasattr(args,"scheme"):#如果有指定scheme
+        if args.scheme == "differ":#differ专用的scheme，硬性规定了单位存活标签信息
+            scheme = {
+                "state": {"vshape": env_info["state_shape"]},
+                "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
+                "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
+                "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
+                "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
+                "reward": {"vshape": (1,)},
+                "terminated": {"vshape": (1,), "dtype": th.uint8},
+                "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},  # DIFFER特有的
+            }
+        if args.scheme == "inspire":#inspire专用的scheme，硬性规定了单位存活标签信息和可视标签矩阵
+            scheme = {
+                "state": {"vshape": env_info["state_shape"]},
+                "obs": {"vshape": env_info["obs_shape"], "group": "agents"},
+                "actions": {"vshape": (1,), "group": "agents", "dtype": th.long},
+                "avail_actions": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.int},
+                "probs": {"vshape": (env_info["n_actions"],), "group": "agents", "dtype": th.float},
+                "reward": {"vshape": (1,)},
+                "terminated": {"vshape": (1,), "dtype": th.uint8},
+                "indi_terminated": {"vshape": (env_info["n_agents"],), "dtype": th.uint8},  # 单位存活标签
+                "visibility_matrix": {"vshape": (env_info["n_agents"],), "dtype": th.uint8}, # 可视标签
+            }
     groups = {
         "agents": args.n_agents
     }

@@ -26,7 +26,7 @@ class GoogleFootballEnv(MultiAgentEnv):
         write_video=False,
         number_of_right_players_agent_controls=0,
         seed=0,
-        sight_field=0.2
+        sight_field=0.5
     ):
         self.dense_reward = dense_reward
         self.write_full_episode_dumps = write_full_episode_dumps
@@ -162,7 +162,7 @@ class GoogleFootballEnv(MultiAgentEnv):
         return terminate
 
     def get_ally_visibility_matrix(self):
-        #inspire用的，获取队友的可见矩阵，为[n_agent,n_agent]，可见为0，反之1
+        #inspire用的，获取队友的可见矩阵，为[n_agent,n_agent]，可见为1，反之0
         matrix = [[0 for _ in range(self.n_agents)] for _ in range(self.n_agents)]
         for agent in range(self.n_agents):
             pos_x,pos_y = self.full_obs["left_team_direction"][agent]
