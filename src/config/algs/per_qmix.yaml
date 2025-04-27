@@ -41,4 +41,4 @@ beta_end: 1  #PER优先级采样中，beta的最终值
 #测试参数
 use_ESR_based_on_normal_distribution: True #使用基于正态分布的经验选择与接收算法
 
-name: "super_qmix"
+name: "per_qmix"

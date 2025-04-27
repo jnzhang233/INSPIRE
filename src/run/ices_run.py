@@ -65,6 +65,26 @@ def run_sequential(args, logger):
     # Init runner so we can get env info
     runner = r_REGISTRY[args.runner](args=args, logger=logger)
 
+    # 根据grf地图来确定必要参数
+    if args.env == "ices_gfootball":
+        if args.env_args["map_name"] == "academy_3_vs_1_with_keeper":
+            args.int_ratio = 0.2
+            args.int_finish = 0.05
+            args.int_ent_coef = 0.001
+        if args.env_args["map_name"] == "academy_corner":
+            args.int_ratio = 0.1
+            args.int_finish = 0.05
+            args.int_ent_coef = 0.002
+        if args.env_args["map_name"] == "academy_counterattack_hard":
+            args.int_ratio = 0.05
+            args.int_finish = 0.05
+            args.int_ent_coef = 0.005
+        else:
+            args.int_ratio = 0.05
+            args.int_finish = 0.05
+            args.int_ent_coef = 0.005
+
+
     # Set up schemes and groups here
     env_info = runner.get_env_info()
     args.n_agents = env_info["n_agents"]

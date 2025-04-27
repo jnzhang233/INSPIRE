@@ -11,9 +11,6 @@ runner: "episode_differ"
 
 buffer_size: 5000
 
-#使用特制mac
-mac: "transformer_mac"
-
 # update the target network every {} episodes
 target_update_interval: 200
 
@@ -45,7 +42,6 @@ scheme: "differ"
 use_ESR_based_on_normal_distribution: True #使用基于正态分布的经验选择与接收算法
 
 #transformer参数
-agent: transformer #将使用的agent改成transformer
 transformer_embedding_dim: 128 #transformer中embedding的size。一般至少与输入相当或更大
 transformer_n_head: 2 #encoder的多头注意力头数
 transformer_n_layers: 2 #transformer的编解码器层数

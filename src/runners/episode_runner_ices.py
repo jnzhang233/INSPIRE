@@ -26,12 +26,12 @@ class EpisodeRunner:
 
         # Log the first run
         self.log_train_stats_t = -1000000
-        env_name = args.env_args["env_name"]
+        env_name = args.env_args["map_name"]
 
-        self.csv_dir = f"./csv_files/{args.name[:-6]}/{env_name}/"
-        self.csv_path = f"{self.csv_dir}seed_{args.seed}.csv"
-        if not os.path.exists(self.csv_dir):
-            os.makedirs(self.csv_dir)
+        # self.csv_dir = f"./csv_files/{args.name[:-6]}/{env_name}/"
+        # self.csv_path = f"{self.csv_dir}seed_{args.seed}.csv"
+        # if not os.path.exists(self.csv_dir):
+        #     os.makedirs(self.csv_dir)
 
     def setup(self, scheme, groups, preprocess, mac):
         self.new_batch = partial(

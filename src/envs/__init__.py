@@ -25,6 +25,13 @@ except Exception as e:
     gfootball = False
     print(e)
 
+try:
+    ices_gfootball = True
+    from .gfootball.ICES_FootballEnv import ICES_FootballEnv
+except Exception as e:
+    ices_gfootball = False
+    print(e)
+
 def env_fn(env, **kwargs) -> MultiAgentEnv:
     return env(**kwargs)
 
@@ -51,5 +58,10 @@ if gfootball:
     REGISTRY["gfootball"] = partial(env_fn, env=GoogleFootballEnv)
 else:
     print("GRF is not supported...")
+
+if ices_gfootball:
+    REGISTRY["ices_gfootball"] = partial(env_fn, env=ICES_FootballEnv)
+else:
+    print("ICES_GRF is not supported...")
 
 print("Supported environments:", REGISTRY)

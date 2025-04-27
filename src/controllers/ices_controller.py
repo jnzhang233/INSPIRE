@@ -12,10 +12,13 @@ class ICESMAC(BasicMAC):
         super(ICESMAC, self).__init__(scheme, groups, args)
 
         self.int_hidden_states = None
-
         self.t_max = args.t_max
+
+        
+
         self.int_ratio = args.int_ratio
         self.int_finish = args.int_finish
+
 
     def select_actions(self, ep_batch, t_ep, t_env, bs=slice(None), test_mode=False):
         # Only select actions for the selected batch elements in bs

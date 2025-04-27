@@ -377,11 +377,11 @@ runner = episode_inspire
 
 4. 更新了src/controllers/ices_n_controller.py，src/controllers/ices_controller.py
 
-5. 更新了src/learners/ices_nq_learner.py
+5. 更新了src/learners/ices_nq_learner.py，src/learners/ices_dmaq_qatten_learner.py
 
 6. 更新了src/runners/parallel_runner_ices.py
 
-7. 在modules，更新了src/modules/agents/ices_n_rnn_agent.py，更新了src/modules/exp，
+7. 在modules，更新了src/modules/agents/ices_n_rnn_agent.py，更新了src/modules/exp，src/modules/agents/ices_agent.py，src/modules/ices
 
 8. 更新了src/utils/rl_utils.py
 
@@ -441,8 +441,6 @@ kalei(VDN版本，用在grf)：python src/main.py --config=kalei/Kalei_vdn_rnn -
 ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
 
 
-
-python src/main.py --config=Kalei_qmix_rnn --env-config=sc2 with env_args.map_name=27m_vs_30m t_max=10050000
 
 
 
@@ -518,15 +516,17 @@ python src/main.py --config=Kalei_qmix_rnn --env-config=sc2 with env_args.map_na
 
 **目前在跑（12服务器）：**
 
-kalei_smacv1测试：/2s3z/Kalei_qmix_rnn_1R3/2
+ESR_test:ESR_selected_ratio_end=0.7，在ESR/4
 
-kalei_grf测试：很差，改成vdn版本看看：/academy_3_vs_1_with_keeper/Kalei_qmix_rnn_1R3/2。目前跑了1/3，还是8%
+probability_temperature=0.8，1.2 在esr/5，6
 
 **目前在跑（10服务器）：**
 
 kalei_grf_pararell:academy_3_vs_1_with_keeper/Kalei_qmix_rnn_1R3/2
 
 kalei_smacv2_pararell:/sacred/2s3z/Kalei_qmix_rnn_1R3/2。好像还是要跑很久
+
+ESR_test:ESR_selected_ratio_end=0.4,0.6在ESR/2,3
 
 
 
@@ -813,7 +813,7 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 
 分享1+接收2可以弃用了。分享2可以用，但是感觉参数要仔细调整一下，起码不能比原版ESR差太多。目前打算在分享2+接收0的基础上进行调优。先看看实验结果怎么样。目前确认在经验分享2+经验接收0的基础上进行调优。
 
-#### 参数消融测试
+#### 参数消融测试（带Transformer）
 
 ESR_selected_ratio_end：采样比例的终止值，0-1
 
@@ -839,6 +839,34 @@ probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，�
 | probability_temperature=1.2           | 0.8817733990147784 |                                  | 0.792014           |
 | probability_temperature=1.4           | 0.8844             | 19 hours, 44 minutes, 14 seconds | 1.112915           |
 
+#### 参数消融测试（不带Transformer）
+
+ESR_selected_ratio_end：采样比例的终止值，0-1
+
+| 类型                                   | 最优值 | 运行时间 | 收敛轮次（百万轮） |
+| -------------------------------------- | ------ | -------- | ------------------ |
+| ESR_selected_ratio_end=0.2             |        |          |                    |
+| ESR_selected_ratio_end=0.3             |        |          |                    |
+| ESR_selected_ratio_end=0.4             |        |          |                    |
+| ESR_selected_ratio_end=0.5（目前的值） |        |          |                    |
+| ESR_selected_ratio_end=0.6             |        |          |                    |
+| ESR_selected_ratio_end=0.7             |        |          |                    |
+| ESR_selected_ratio_end=0.8             |        |          |                    |
+
+probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验
+
+| 类型                                  | 最优值 | 运行时间 | 收敛轮次（百万轮） |
+| ------------------------------------- | ------ | -------- | ------------------ |
+| probability_temperature=0.6           |        |          |                    |
+| probability_temperature=0.8           |        |          |                    |
+| probability_temperature=1（目前的值） |        |          |                    |
+| probability_temperature=1.2           |        |          |                    |
+| probability_temperature=1.4           |        |          |                    |
+
+
+
+
+
 ## 对照实验设计
 
 运行设备：2080ti或3090.
@@ -854,7 +882,7 @@ probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，�
 | SMAC     | 2s3z                       | hard                             |
 | SMAC     | MMM2                       | super hard                       |
 | SMAC     | 10m_vs_11m                 | super hard                       |
-| SMAC     | 27m_vs_30m                 | super hard                       |
+| SMAC     | 3s5z_vs_3s6z               | super hard                       |
 | GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |
 | GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |
 | SMACV2   | terran_10_vs_11            | 人族随机对战，10_vs_11           |
@@ -947,43 +975,43 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 
 **SMAC-奖励正常**
 
-| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m | 27m_vs_30m |
-| ---------- | ---- | -------- | ---------- | ---------- |
-| PER        |      |          |            |            |
-| SUPER      |      |          |            |            |
-| DIFFER     |      |          |            |            |
-| 我们的方法 |      |          |            |            |
-|            |      |          |            |            |
+| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m         | 3s5z_vs_3s6z |
+| ---------- | ---- | -------- | ------------------ | ------------ |
+| PER        | 在跑 | 在跑     | 0.565833893421164  | 在跑         |
+| SUPER      | 在跑 |          | 0.678294553976223  |              |
+| DIFFER     |      |          | 0.7344632768361582 |              |
+| 我们的方法 |      |          |                    |              |
+|            |      |          |                    |              |
 
 **SMAC-奖励稀疏**
 
-| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m | 27m_vs_30m |
-| ---------- | ---- | -------- | ---------- | ---------- |
-| PER        |      |          |            |            |
-| SUPER      |      |          |            |            |
-| DIFFER     |      |          |            |            |
-| 我们的方法 |      |          |            |            |
-|            |      |          |            |            |
+| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m          | 3s5z_vs_3s6z |
+| ---------- | ---- | -------- | ------------------- | ------------ |
+| PER        |      |          | 0.20669463632415203 |              |
+| SUPER      |      |          | 0.602470292252863   |              |
+| DIFFER     |      |          | 0.09571788413098237 |              |
+| 我们的方法 |      |          |                     |              |
+|            |      |          |                     |              |
 
 **GRF-奖励正常**
 
-| 算法       | academy_corner | academy_counterattack_hard |
-| ---------- | -------------- | -------------------------- |
-| PER        |                |                            |
-| SUPER      |                |                            |
-| DIFFER     |                |                            |
-| 我们的方法 |                |                            |
-|            |                |                            |
+| 算法       | academy_corner     | academy_counterattack_hard |
+| ---------- | ------------------ | -------------------------- |
+| PER        | 0.509775110253782  | 0.671561295825965          |
+| SUPER      | 0.742709902951855  | 0.793875645917204          |
+| DIFFER     | 0.2767857142857143 | 0.09433962264150944        |
+| 我们的方法 |                    |                            |
+|            |                    |                            |
 
 **GRF-奖励稀疏**
 
-| 算法       | academy_corner | academy_counterattack_hard |
-| ---------- | -------------- | -------------------------- |
-| PER        |                |                            |
-| SUPER      |                |                            |
-| DIFFER     |                |                            |
-| 我们的方法 |                |                            |
-|            |                |                            |
+| 算法       | academy_corner      | academy_counterattack_hard |
+| ---------- | ------------------- | -------------------------- |
+| PER        | 0.692256181513049   | 0.181245637552827          |
+| SUPER      | 0.713048885163406   | 0.347565307296136          |
+| DIFFER     | 0.09722222222222222 | 0.2840909090909091         |
+| 我们的方法 |                     |                            |
+|            |                     |                            |
 
 **SMACV2-奖励正常**
 

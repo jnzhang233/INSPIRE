@@ -13,6 +13,7 @@ from .qmix_per import PER_Learner
 from .QMIX_Kalei import Kalei_NQLearner
 from .VDN_Kalei import Kalei_VDNLearner
 from .ices_nq_learner import ICESNQLearner
+from .ices_dmaq_qatten_learner import ICES_DMAQ_qattenLearner
 
 REGISTRY = {}
 
@@ -41,3 +42,4 @@ REGISTRY["Kalei_vdn_learner"] = Kalei_VDNLearner
 
 #ICES
 REGISTRY["ices_nq_learner"] = ICESNQLearner
+REGISTRY["ices_QPLEX"] = ICES_DMAQ_qattenLearner
