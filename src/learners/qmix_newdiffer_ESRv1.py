@@ -58,15 +58,11 @@ class INSPIRE_Learner:
         # —————————————————————————————————————————————————————————————————————————————————————————————————————————
         # Calculate estimated Q-Values
         mac_out = []
-        embedding_out = []
         self.mac.init_hidden(batch.batch_size)
         for t in range(batch.max_seq_length):#将transformer的forward拆为两步，从而获取embedding
-            embedding = self.mac.get_embedding(batch, t=t) #(batch_size,n_agents,embedding_dim)
-            agent_outs = self.mac.forward_using_embedding(t=t,embedding=embedding,ep_avail_actions=avail_actions,ep_batch_batchsize=batch.batch_size)
+            agent_outs = self.mac.forward(batch, t=t)
             mac_out.append(agent_outs)
-            embedding_out.append(embedding)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
-        embedding_out = th.stack(embedding_out,dim=1) #(batch_size,seq_length,n_agents,embedding_dim)
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 

@@ -30,6 +30,7 @@ env_args:
   representation: "simple115"
   num_agents: 4
   time_limit: 150
+  state_timestep_number: False
 
 test_greedy: True
 test_nepisode: 32

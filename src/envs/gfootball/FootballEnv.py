@@ -4,6 +4,7 @@ from gfootball.env import observation_preprocessing
 from ..multiagentenv import MultiAgentEnv
 import gym
 import torch as th
+import numpy as np
 
 
 class GoogleFootballEnv(MultiAgentEnv):
@@ -26,8 +27,13 @@ class GoogleFootballEnv(MultiAgentEnv):
         write_video=False,
         number_of_right_players_agent_controls=0,
         seed=0,
-        sight_field=0.5
+        sight_field=0.5,
+        state_timestep_number = False
     ):
+        #新加的改动，为了适应kalei
+        self.state_timestep_number = state_timestep_number
+
+        #原先的
         self.dense_reward = dense_reward
         self.write_full_episode_dumps = write_full_episode_dumps
         self.write_goal_dumps = write_goal_dumps
@@ -73,6 +79,15 @@ class GoogleFootballEnv(MultiAgentEnv):
 
         self.n_actions = self.action_space[0].n
         self.obs = None
+
+        #针对qplex的obs_dim参数，但是目前不知道怎么得到这个参数，所以写死
+        self.obs_dim = None
+        if self.env_name == "academy_3_vs_1_with_keeper":
+            self.obs_dim = 26
+        if self.env_name == "academy_corner":
+            self.obs_dim = 34
+        if self.env_name == "academy_3_vs_1_with_keeper":
+            self.obs_dim = 34
 
     def step(self, _actions):
         """Returns reward, terminated, info."""
@@ -151,6 +166,9 @@ class GoogleFootballEnv(MultiAgentEnv):
     def get_stats(self):
         return  {}
 
+    # __________________________________________________________________________
+    # DIFFER专用修改
+    # ___________________________________________________________________________
     def get_indi_terminated(self):
         #differ用的，获取个体存活标签。
         terminate = []
@@ -161,6 +179,9 @@ class GoogleFootballEnv(MultiAgentEnv):
                 terminate.append(1)
         return terminate
 
+    # __________________________________________________________________________
+    # INSPIRE专用修改
+    # ___________________________________________________________________________
     def get_ally_visibility_matrix(self):
         #inspire用的，获取队友的可见矩阵，为[n_agent,n_agent]，可见为1，反之0
         matrix = [[0 for _ in range(self.n_agents)] for _ in range(self.n_agents)]
@@ -185,3 +206,7 @@ class GoogleFootballEnv(MultiAgentEnv):
             list.append(int(binary_str,2))
         matrix = list
         return matrix
+
+    # __________________________________________________________________________
+    # ICES专用修改
+    # ___________________________________________________________________________

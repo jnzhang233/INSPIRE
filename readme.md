@@ -359,6 +359,63 @@ scheme = inspire
 
 runner = episode_inspire
 
+#### Kalei要求的更新
+
+1. 更新了controller/Kalei_type_n_controller.py
+2. 更新了modules/agent/Kalei_type_NRNNAgent.py
+3. 更新了learners/Kalei_nq_learner.py
+4. 更新了config/algs/Kalei_qmix_rnn.yaml
+5. 在src/utils/rl_utils.py增加了原工程的build_td_lambda_targets函数。
+
+#### ICES要求的更新
+
+1. pyro:pip3 install pyro-ppl
+
+2. 更新了src/config/algs/ices.yaml,ices_QPLEX.yaml（GRF的）
+
+3. 在smacv1和smacv2的starcraft.py中添加了专用函数
+
+4. 更新了src/controllers/ices_n_controller.py，src/controllers/ices_controller.py
+
+5. 更新了src/learners/ices_nq_learner.py
+
+6. 更新了src/runners/parallel_runner_ices.py
+
+7. 在modules，更新了src/modules/agents/ices_n_rnn_agent.py，更新了src/modules/exp，
+
+8. 更新了src/utils/rl_utils.py
+
+9. 在src/components/action_selectors.py，更新了专用函数，添加import torch.nn.functional as F
+
+10. 更新了src/components/ices_episode_buffer.py，src/run/ices_run.py。在ices.yaml加入run:"ices_run"。在ices_run.py把from components.episode_buffer import ReplayBuffer改成from components.ices_episode_buffer import ReplayBuffer
+
+11. 在utils/rl_utils.py，加入以下函数
+
+    ```python
+    def build_td_lambda_targets_ices(
+        rewards, terminated, mask, target_qs, n_agents, gamma, td_lambda
+    ):
+        # EXP
+        if td_lambda is False:
+            return rewards + gamma * (1 - terminated) * target_qs[:, 1:, :]
+        # Assumes  <target_qs > in B*T*A and <reward >, <terminated >, <mask > in (at least) B*T-1*1
+        # Initialise  last  lambda -return  for  not  terminated  episodes
+        ret = target_qs.new_zeros(*target_qs.shape)
+        ret[:, -1] = target_qs[:, -1] * (1 - th.sum(terminated, dim=1))
+        # Backwards  recursive  update  of the "forward  view"
+        for t in range(ret.shape[1] - 2, -1, -1):
+            ret[:, t] = td_lambda * gamma * ret[:, t + 1] + mask[:, t] * (
+                rewards[:, t]
+                + (1 - td_lambda) * gamma * target_qs[:, t + 1] * (1 - terminated[:, t])
+            )
+        # Returns lambda-return from t=0 to t=T-1, i.e. in B*T-1*A
+        return ret[:, 0:-1]
+    ```
+
+    并把learner的build_td_lambda_targets改成build_td_lambda_targets_ices
+
+ICES-GRF移植做到了grf的环境，还没做完
+
 ## 运行指令：
 
 目前在12服务器运行。
@@ -371,11 +428,21 @@ super：python src/main.py --config=super_qmix --env-config=sc2 with env_args.ma
 
 per：python src/main.py --config=per_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
 
-differ(qmix版本，用在smac)：python src/main.py --config=differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+differ(qmix版本，用在smac)：python src/main.py --config=differ/differ_qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
 
-differ(vdn版本，用在grf)：python src/main.py --config=differ_vdn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000
+differ(vdn版本，用在grf)：python src/main.py --config=differ/differ_vdn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000。跑起来比qmix版本好一些，但是也不怎么样
 
 qmix: python src/main.py --config=qmix --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+kalei(QMIX版本，用在smac):python src/main.py --config=kalei/Kalei_qmix_rnn --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 跑起来特别特别特别慢，要尽快跑
+
+kalei(VDN版本，用在grf)：python src/main.py --config=kalei/Kalei_vdn_rnn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000 跑起来特别特别特别慢，要尽快跑
+
+ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+
+
+
+python src/main.py --config=Kalei_qmix_rnn --env-config=sc2 with env_args.map_name=27m_vs_30m t_max=10050000
 
 
 
@@ -383,7 +450,7 @@ qmix: python src/main.py --config=qmix --env-config=sc2 with env_args.map_name=2
 
 1. SMACV1：--env-config=sc2 with env_args.map_name=地图名
 2. SMACV2：--env-config=sc2_v2_zerg(地图名) with 。SMACV2是在args/envs里面的三个sc2_v2_文件里面调参数的，也可以每个地图单独调好然后保存，到时候改一下--env-config参数就可以调用到对应的
-3. GRF:-env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 。换地图的时候要自己查一下map_name对应的num_agents和time_limit两个参数并填上。
+3. GRF:--env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 。换地图的时候要自己查一下map_name对应的num_agents和time_limit两个参数并填上。
 
 ### 方法测试
 
@@ -443,17 +510,25 @@ qmix: python src/main.py --config=qmix --env-config=sc2 with env_args.map_name=2
    
    ESR_selected_ratio_end：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 ESR_selected_ratio_end=0.4
    
+   probability_temperature：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probability_temperature=1
    
+   python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=2 receive_version=0 agent=n_rnn
 
 ## 目前在跑
 
 **目前在跑（12服务器）：**
 
-ESR_selected_ratio_end：0.8在
+kalei_smacv1测试：/2s3z/Kalei_qmix_rnn_1R3/2
+
+kalei_grf测试：很差，改成vdn版本看看：/academy_3_vs_1_with_keeper/Kalei_qmix_rnn_1R3/2。目前跑了1/3，还是8%
 
 **目前在跑（10服务器）：**
 
-ESR_selected_ratio_end：=0.4-0.7在/ESR_test/1-4
+kalei_grf_pararell:academy_3_vs_1_with_keeper/Kalei_qmix_rnn_1R3/2
+
+kalei_smacv2_pararell:/sacred/2s3z/Kalei_qmix_rnn_1R3/2。好像还是要跑很久
+
+
 
 ## 改进思路
 
@@ -631,10 +706,16 @@ TODOlist:
 ### stage6:尝试实现idea4
 
 1. 阅读信息熵相关代码，思考可行方案
+
 2. 将grf特化过的VDN-differ加入工程，QMIX-DIFFER表现可能很差
+
 3. 尝试添加24年算法，目前有可能实现的有
    1. Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning（方学长用过了）
    2. Individual Contributions as Intrinsic Exploration Scaffolds for Multi-agent Reinforcement Learning
+
+4. 对于kale：
+
+   疑似starcraft做了一些修改，先看看跑起来会不会有影响，没有大影响就不管了
 
 ## idea测试
 
@@ -656,11 +737,15 @@ episode_runner的话3005000轮次即可，如果用pareall_runner的话可能更
 
 ![](D:\study_work\python\New_Differ\picture\ablition-module_test-2s3z.jpg)
 
-{'DIFFER(baseline)': 0.9861111111111112。DIFFER基线。
+{'DIFFER(baseline)': 0.9855769230769232,原版differ
 
+ 'ESR-Transformer': 0.8878048780487805, 原版ESR算法+transformer_agent
 
+'INSPIRE_ESR_using_normal_distribution': 0.9815668202764976,原版ESR
 
-'INSPIRE_ESR_using_normal_distribution': 0.9863013698630136。基于正态分布的经验选择与分享算法+DIFFER效果。？
+'rnn-share2-receive0': 0.9953488372093025, 我们的经验分享2+经验接收0
+
+'originalESR': 0.976851851851852
 
 
 
@@ -732,13 +817,27 @@ embedding_dim表示由输入数据经过线性层生成的embedding向量维度�
 
 ESR_selected_ratio_end：采样比例的终止值，0-1
 
-| 类型                       | 最优值 | 运行时间 | 收敛轮次（百万轮） |
-| -------------------------- | ------ | -------- | ------------------ |
-| ESR_selected_ratio_end=0.4 |        |          |                    |
-| ESR_selected_ratio_end=0.5 |        |          |                    |
-| ESR_selected_ratio_end=0.6 |        |          |                    |
-| ESR_selected_ratio_end=0.7 |        |          |                    |
-| ESR_selected_ratio_end=0.8 |        |          |                    |
+| 类型                                   | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| -------------------------------------- | ------------------ | -------------------------------- | ------------------ |
+| ESR_selected_ratio_end=0.2             | 0.8761904761904762 | 19 hours, 20 minutes, 23 seconds | 0.992248           |
+| ESR_selected_ratio_end=0.3             | 0.8780487804878049 | 19 hours, 31 minutes, 49 seconds | 0.702259           |
+| ESR_selected_ratio_end=0.4             | 0.8986175115207373 | 19 hours, 27 minutes, 8 seconds  | 1.925303           |
+| ESR_selected_ratio_end=0.5（目前的值） | 0.9047619047619048 | 19 hours, 29 minutes, 50 seconds | 1.725106           |
+| ESR_selected_ratio_end=0.6             | 0.8669950738916257 | 19 hours, 38 minutes, 48 seconds | 0.922693           |
+| ESR_selected_ratio_end=0.7             | 0.7910447761194029 | 19 hours, 9 minutes, 28 seconds  | 0.601545           |
+| ESR_selected_ratio_end=0.8             | 0.8737373737373737 | 19 hours, 23 minutes, 50 seconds | 0.761839           |
+
+目前认为采样比例在0.5比较好，也就是原值。
+
+probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验
+
+| 类型                                  | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| ------------------------------------- | ------------------ | -------------------------------- | ------------------ |
+| probability_temperature=0.6           | 0.8732394366197183 |                                  | 1.583765           |
+| probability_temperature=0.8           | 0.8732394366197183 |                                  | 0.802421           |
+| probability_temperature=1（目前的值） | 0.9047619047619048 | 19 hours, 29 minutes, 50 seconds | 1.725106           |
+| probability_temperature=1.2           | 0.8817733990147784 |                                  | 0.792014           |
+| probability_temperature=1.4           | 0.8844             | 19 hours, 44 minutes, 14 seconds | 1.112915           |
 
 ## 对照实验设计
 
@@ -797,10 +896,14 @@ ESR_selected_ratio_end：采样比例的终止值，0-1
 
    2023, pp. 2433–2435.
 
-3. QMIX
+4. QMIX
 
-4. 我们的方法
-5. 选择1-2个2024年算法
+5. 我们的方法
+6. 2024-CCFA-NIPS Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning**利用个性化掩膜实现多样化参数共享**。找方文浩
+
+   提出kaleidscope，为不同的agent维护一组公共参数和多组可学习的mask来进行参数共享。通过鼓励mask间的差异促进policy的多样性。
+
+   代码：https://github.com/LXXXXR/Kaleidoscope
 
 
 
@@ -821,16 +924,6 @@ ESR_selected_ratio_end：采样比例的终止值，0-1
    优势：在GRF和SMAC都跑过。有完整代码
 
    劣势：代码跟pymarl不是同一个框架，移植比较费时间
-
-3. 2024-CCFA-NIPS Kaleidoscope: Learnable Masks for Heterogeneous Multi-agent Reinforcement Learning**利用个性化掩膜实现多样化参数共享**。找方文浩
-
-   提出kaleidscope，为不同的agent维护一组公共参数和多组可学习的mask来进行参数共享。通过鼓励mask间的差异促进policy的多样性。
-
-   代码：https://github.com/LXXXXR/Kaleidoscope
-
-   优势：完整代码，疑似符合PYMARL工程结构。
-
-   劣势：没在GRF跑过，如果他需要在GRF针对性设计实现的话，在GRF的表现可能很差
 
 4. 2024-CCFA-ICML LAGMA: LAtent Goal-guided Multi-Agent Reinforcement Learning  **潜在目标引导协作**
    解决：提出潜在目标引导的MARL（LAGMA），在潜在空间中生成目标来达到轨迹，提供一个潜在的目标一道奖励来向参考轨迹过度。使用VQ-VAE进行量化嵌入空间改造，将状态投影到量化向量空间。使用VQ密码本生成到达目标的参考轨迹。使用潜在目标来引导内在奖励的生成。

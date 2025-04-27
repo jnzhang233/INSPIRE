@@ -86,3 +86,5 @@ class StarCraftCapabilityEnvWrapper(MultiAgentEnv):
 
     def close(self):
         return self.env.close()
+
+

@@ -10,6 +10,9 @@ from .qmix_newdiffer__ESR import INSPIRE_Learner as INSPIRE_Learner_v0
 from .qmix_newdiffer_ESRv1 import INSPIRE_Learner as INSPIRE_Learner_v1
 from .qmix_super import SUPER_Learner
 from .qmix_per import PER_Learner
+from .QMIX_Kalei import Kalei_NQLearner
+from .VDN_Kalei import Kalei_VDNLearner
+from .ices_nq_learner import ICESNQLearner
 
 REGISTRY = {}
 
@@ -31,3 +34,10 @@ REGISTRY["inspire_learner_v1"] = INSPIRE_Learner_v1
 REGISTRY["super_learner"] = SUPER_Learner
 #per_qmix
 REGISTRY["per_learner"] = PER_Learner
+
+#kalei
+REGISTRY["Kalei_nq_learner"] = Kalei_NQLearner
+REGISTRY["Kalei_vdn_learner"] = Kalei_VDNLearner
+
+#ICES
+REGISTRY["ices_nq_learner"] = ICESNQLearner
