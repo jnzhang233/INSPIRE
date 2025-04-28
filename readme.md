@@ -508,27 +508,25 @@ ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=
    
    ESR_selected_ratio_end：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 ESR_selected_ratio_end=0.4
    
-   probability_temperature：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probability_temperature=1
+   probability_temperature：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probability_temperature=1 
    
-   python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=2 receive_version=0 agent=n_rnn
+   ESR_warm_up_ratio：python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 ESR_warm_up_ratio=0.6
+   
+   python src/main.py --config=inspire_ESRtest --env-config=sc2 with env_args.map_name=2s3z t_max=2005000 probabilities_version=2 receive_version=2 agent=n_rnn
 
 ## 目前在跑
 
 **目前在跑（12服务器）：**
 
-ESR_test:ESR_selected_ratio_end=0.7，在ESR/4
 
-probability_temperature=0.8，1.2 在esr/5，6
 
 **目前在跑（10服务器）：**
 
-kalei_grf_pararell:academy_3_vs_1_with_keeper/Kalei_qmix_rnn_1R3/2
+temperature=0.6：2s3z/ESR_test/1
 
-kalei_smacv2_pararell:/sacred/2s3z/Kalei_qmix_rnn_1R3/2。好像还是要跑很久
+ESR_warm_up_ratio=0.4,0.6,0.7：2s3z/ESR_test/3-5
 
-ESR_test:ESR_selected_ratio_end=0.4,0.6在ESR/2,3
-
-
+RNN版本的经验分享2+经验接收2：2s3z/ESR_test/6
 
 ## 改进思路
 
@@ -841,31 +839,37 @@ probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，�
 
 #### 参数消融测试（不带Transformer）
 
-ESR_selected_ratio_end：采样比例的终止值，0-1
+ESR_selected_ratio_end：采样比例的终止值，0-1。目前来看end=0.5最佳
 
-| 类型                                   | 最优值 | 运行时间 | 收敛轮次（百万轮） |
-| -------------------------------------- | ------ | -------- | ------------------ |
-| ESR_selected_ratio_end=0.2             |        |          |                    |
-| ESR_selected_ratio_end=0.3             |        |          |                    |
-| ESR_selected_ratio_end=0.4             |        |          |                    |
-| ESR_selected_ratio_end=0.5（目前的值） |        |          |                    |
-| ESR_selected_ratio_end=0.6             |        |          |                    |
-| ESR_selected_ratio_end=0.7             |        |          |                    |
-| ESR_selected_ratio_end=0.8             |        |          |                    |
+| 类型                                   | 最优值             | 运行时间                        | 收敛轮次（百万轮） |
+| -------------------------------------- | ------------------ | ------------------------------- | ------------------ |
+| ESR_selected_ratio_end=0.2             |                    |                                 |                    |
+| ESR_selected_ratio_end=0.3             |                    |                                 |                    |
+| ESR_selected_ratio_end=0.4             | 0.9906976744186047 | 13 hours, 20 seconds            | 1.864917           |
+| ESR_selected_ratio_end=0.5（目前的值） | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds    | 1.664335           |
+| ESR_selected_ratio_end=0.6             | 0.9851485148514851 | 13 hours, 2 minutes, 28 seconds | 1.834819           |
+| ESR_selected_ratio_end=0.7             | 0.9724770642201835 | 9 hours, 40 minutes, 1 seconds  | 1.87523            |
+| ESR_selected_ratio_end=0.8             |                    |                                 |                    |
 
 probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验
 
-| 类型                                  | 最优值 | 运行时间 | 收敛轮次（百万轮） |
-| ------------------------------------- | ------ | -------- | ------------------ |
-| probability_temperature=0.6           |        |          |                    |
-| probability_temperature=0.8           |        |          |                    |
-| probability_temperature=1（目前的值） |        |          |                    |
-| probability_temperature=1.2           |        |          |                    |
-| probability_temperature=1.4           |        |          |                    |
+| 类型                                  | 最优值             | 运行时间                     | 收敛轮次（百万轮） |
+| ------------------------------------- | ------------------ | ---------------------------- | ------------------ |
+| probability_temperature=0.6           |                    |                              |                    |
+| probability_temperature=0.8           | 0.9814814814814815 |                              | 1.924852           |
+| probability_temperature=1（目前的值） | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds | 1.664335           |
+| probability_temperature=1.2           | 0.9502487562189055 |                              | 1.865391           |
+| probability_temperature=1.4           |                    |                              |                    |
 
+ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
 
-
-
+| 类型                  | 最优值             | 运行时间                     | 收敛轮次（百万轮） |
+| --------------------- | ------------------ | ---------------------------- | ------------------ |
+| ESR_warm_up_ratio=0.5 |                    |                              |                    |
+| ESR_warm_up_ratio=0.6 | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds | 1.664335           |
+| ESR_warm_up_ratio=0.7 |                    |                              |                    |
+| ESR_warm_up_ratio=0.8 |                    |                              |                    |
+|                       |                    |                              |                    |
 
 ## 对照实验设计
 
@@ -877,16 +881,16 @@ probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，�
 
 ### 实验地图选择
 
-| 实验环境 | 地图名                     | 地图难度/简介                    |
-| -------- | -------------------------- | -------------------------------- |
-| SMAC     | 2s3z                       | hard                             |
-| SMAC     | MMM2                       | super hard                       |
-| SMAC     | 10m_vs_11m                 | super hard                       |
-| SMAC     | 3s5z_vs_3s6z               | super hard                       |
-| GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |
-| GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |
-| SMACV2   | terran_10_vs_11            | 人族随机对战，10_vs_11           |
-| SMACV2   | terran_10_vs_10            | 人族随机对战，10_vs_10           |
+| 实验环境 | 地图名                     | 地图难度/简介                    | 运行时间估计 |
+| -------- | -------------------------- | -------------------------------- | ------------ |
+| SMAC     | 2s3z                       | hard                             | 1-2day       |
+| SMAC     | MMM2                       | super hard                       | 3day         |
+| SMAC     | 10m_vs_11m                 | super hard                       | 3day         |
+| SMAC     | 3s5z_vs_3s6z               | super hard                       | 3day         |
+| GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |              |
+| GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |              |
+| SMACV2   | terran_10_vs_11            | 人族随机对战，10_vs_11           |              |
+| SMACV2   | terran_10_vs_10            | 人族随机对战，10_vs_10           |              |
 
 在奖励正常和奖励稀疏下各跑一次，所以一共16个曲线图
 
@@ -975,13 +979,13 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 
 **SMAC-奖励正常**
 
-| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m         | 3s5z_vs_3s6z |
-| ---------- | ---- | -------- | ------------------ | ------------ |
-| PER        | 在跑 | 在跑     | 0.565833893421164  | 在跑         |
-| SUPER      | 在跑 |          | 0.678294553976223  |              |
-| DIFFER     |      |          | 0.7344632768361582 |              |
-| 我们的方法 |      |          |                    |              |
-|            |      |          |                    |              |
+| 算法       | 2s3z               | 3s_vs_3z | 10m_vs_11m         | 3s5z_vs_3s6z |
+| ---------- | ------------------ | -------- | ------------------ | ------------ |
+| PER        | 在跑               | 在跑     | 0.565833893421164  | 在跑         |
+| SUPER      | 在跑               |          | 0.678294553976223  |              |
+| DIFFER     |                    |          | 0.7344632768361582 |              |
+| 我们的方法 |                    |          |                    |              |
+| kaleiscope | 0.9095477386934674 |          |                    |              |
 
 **SMAC-奖励稀疏**
 
@@ -991,7 +995,7 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 | SUPER      |      |          | 0.602470292252863   |              |
 | DIFFER     |      |          | 0.09571788413098237 |              |
 | 我们的方法 |      |          |                     |              |
-|            |      |          |                     |              |
+| kaleiscope |      |          |                     |              |
 
 **GRF-奖励正常**
 
@@ -1001,7 +1005,7 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 | SUPER      | 0.742709902951855  | 0.793875645917204          |
 | DIFFER     | 0.2767857142857143 | 0.09433962264150944        |
 | 我们的方法 |                    |                            |
-|            |                    |                            |
+| kaleiscope |                    |                            |
 
 **GRF-奖励稀疏**
 
@@ -1011,7 +1015,7 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 | SUPER      | 0.713048885163406   | 0.347565307296136          |
 | DIFFER     | 0.09722222222222222 | 0.2840909090909091         |
 | 我们的方法 |                     |                            |
-|            |                     |                            |
+| kaleiscope |                     |                            |
 
 **SMACV2-奖励正常**
 
@@ -1021,7 +1025,7 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 | SUPER      |               |                 |
 | DIFFER     |               |                 |
 | 我们的方法 |               |                 |
-|            |               |                 |
+| kaleiscope |               |                 |
 
 **SMACV2-奖励稀疏**
 
@@ -1031,4 +1035,4 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 | SUPER      |               |                 |
 | DIFFER     |               |                 |
 | 我们的方法 |               |                 |
-|            |               |                 |
+| kaleiscope |               |                 |
