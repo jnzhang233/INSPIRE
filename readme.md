@@ -584,11 +584,11 @@ kalei(QMIX版本，用在smac):python src/main.py --config=kalei/Kalei_qmix_rnn 
 
 kalei(VDN版本，用在grf)：python src/main.py --config=kalei/Kalei_vdn_rnn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000 跑起来特别特别特别慢，要尽快跑
 
-ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=10050000
+ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=7005000
 
-ICES_GRF:python src/main.py  --config=ices_QPLEX --env-config=ices_gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=11 env_args.time_limit=400 t_max=2005000   **注意：是ices_gfootball，不是gfootball**。num_agent=11直接全程挂0了，改成num_agents=4试试。
+ICES_GRF:python src/main.py  --config=ices_QPLEX --env-config=ices_gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=11 env_args.time_limit=400 t_max=2005000   失败，胜率11%且不稳定。目前改用原论文的工程跑吧，之后看看什么原因。原论文工程连接：https://github.com/LXXXXR/ICES/。
 
-
+python src/main.py --config=kalei/Kalei_qmix_rnn --env-config=sc2 with env_args.map_name=MMM2 t_max=2005000
 
 
 
@@ -600,9 +600,9 @@ ICES_GRF:python src/main.py  --config=ices_QPLEX --env-config=ices_gfootball wit
 
 3. GRF:--env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 。换地图的时候要自己查一下map_name对应的num_agents和time_limit两个参数并填上。
 
-   --env-config=gfootball with env_args.map_name=academy_corner env_args.num_agents=11 env_args.time_limit=400
+   --env-config=gfootball with env_args.map_name=academy_corner env_args.num_agents=4 env_args.time_limit=400
 
-   --env-config=gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=11 env_args.time_limit=400
+   --env-config=gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=4 env_args.time_limit=400
 
    
 
@@ -674,17 +674,17 @@ ICES_GRF:python src/main.py  --config=ices_QPLEX --env-config=ices_gfootball wit
 
 **目前在跑（12服务器）：**
 
-ices_grf：academy_corner/ices_QPlex/2
-
 ices_smac:/2s3z/ices/5
+
+idea验证：/2s3z/inspire_qmix/1
 
 **目前在跑（10服务器）：**
 
-temperature=0.6：2s3z/ESR_test/1
+ESR_warm_up_ratio=0.8：2s3z/ESR_test/8
 
-ESR_warm_up_ratio=0.4,0.6,0.7：2s3z/ESR_test/3-5
+跑了一个ices_grf原版。目前自己改的版本效果太差了，看看原版怎么样——目前看也是一坨
 
-RNN版本的经验分享2+经验接收2：2s3z/ESR_test/6
+
 
 ## 改进思路
 
@@ -714,14 +714,14 @@ RNN版本的经验分享2+经验接收2：2s3z/ESR_test/6
 
    存在的问题:
 
-   1. 目前经验的batch中不包括真正意义的智能体[x,y]坐标，所以需要另外更改实验环境才可以实现。
-   2. 一次训练用的是batch_size个轨迹的batch，并不是实时交互和分享的。所以实现这个可能需要对要分享的经验逐一计算位置是否在范围内。可以试试L1距离和L2距离。
+   1. 目前经验的batch中不包括真正意义的智能体[x,y]坐标，所以需要另外更改实验环境才可以实现。——done
+   2. 一次训练用的是batch_size个轨迹的batch，并不是实时交互和分享的。所以实现这个可能需要对要分享的经验逐一计算位置是否在范围内。可以试试L1距离和L2距离。——done
    3. 不在视野范围但是所处OBS相似的，也应该进行分享，但是本文并没有体现。
 
    如果用视野范围：
 
-   1. 如果视野范围没有人怎么办。是略过还是扩大范围继续搜索。
-   2. 视野范围的消融怎么做。
+   1. 如果视野范围没有人怎么办。是略过还是扩大范围继续搜索。——忽略
+   2. 视野范围的消融怎么做。——忽略
 
    如果用ROMA：
 
@@ -734,6 +734,24 @@ RNN版本的经验分享2+经验接收2：2s3z/ESR_test/6
    如果用GCN做邻居选择：
 
    1. 目前不考虑？
+
+   新思路：增加一个transformer的scorer，对agent之间的影响进行打分，根据分数概率采样，选择前K%概的分享-被分享方进行分享。
+
+   1. 实现scorer——done
+
+   2. 实现采样和掩膜——done。是【batch_size,n_agent,n_agent】的掩膜，[i,j,k]决定i-th batch的agent[j]是否接受来自k-th agent的经验。
+
+   3. 为了让scorer得到训练，需要将分数乘到agent.forward的输入中。将scorer的打分矩阵score，每个agent得到的评分作为权重，然后乘到agent_input上作为输入。
+
+      ```
+      在inspire_controller:
+      agent_weight = score.permute(0, 2, 1)
+      agent_weight = th.sum(agent_weight,dim=2)
+      在inspire_agent:
+      inputs = inputs * score
+      ```
+
+      
 
 3. 选取分享经验的机制。
 
@@ -792,10 +810,10 @@ RNN版本的经验分享2+经验接收2：2s3z/ESR_test/6
 
       增加了sigmoid函数门：Preceive=σ(α⋅(∣e−μ∣−β⋅σ))。其中前面的σ()是sigmoid函数。aphla是敏感度控制因子，aphla越大，接收概率随td-error距离的变化越大。∣e−μ∣是对均值的距离，σ是方差。β是缩放因子，控制接收的严苛程度。
 
-3. 共享的频次可以通过经验采样的变化熵来判断，熵越大频次越高。
+4. 共享的频次可以通过经验采样的变化熵来判断，熵越大频次越高。
 
    感觉有可行性，需要进一步学习变化熵的相关概念，常见用法和计算方法。可以设置一个算法来卡共享比例实现这种逻辑。
-   
+
 5. 实验论述方面的改进：讲一个其他算法+我们方法的效果比其他算法要好。
 
 
@@ -871,7 +889,7 @@ TODOlist:
 
 4. 对于kale：
 
-   疑似starcraft做了一些修改，先看看跑起来会不会有影响，没有大影响就不管了
+   
 
 ## idea测试
 
@@ -1009,23 +1027,23 @@ ESR_selected_ratio_end：采样比例的终止值，0-1。目前来看end=0.5最
 | ESR_selected_ratio_end=0.7             | 0.9724770642201835 | 9 hours, 40 minutes, 1 seconds  | 1.87523            |
 | ESR_selected_ratio_end=0.8             |                    |                                 |                    |
 
-probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验
+probability_temperature: 1。方差的放缩值.为1使用原值，>1增大，选择更加随机，<1减小，便于倾向于偏差大的经验。选取1.0最佳
 
-| 类型                                  | 最优值             | 运行时间                     | 收敛轮次（百万轮） |
-| ------------------------------------- | ------------------ | ---------------------------- | ------------------ |
-| probability_temperature=0.6           |                    |                              |                    |
-| probability_temperature=0.8           | 0.9814814814814815 |                              | 1.924852           |
-| probability_temperature=1（目前的值） | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds | 1.664335           |
-| probability_temperature=1.2           | 0.9502487562189055 |                              | 1.865391           |
-| probability_temperature=1.4           |                    |                              |                    |
+| 类型                                  | 最优值             | 运行时间                         | 收敛轮次（百万轮） |
+| ------------------------------------- | ------------------ | -------------------------------- | ------------------ |
+| probability_temperature=0.6           | 0.9849246231155779 | 12 hours, 57 minutes, 26 seconds | 1.985558           |
+| probability_temperature=0.8           | 0.9814814814814815 |                                  | 1.924852           |
+| probability_temperature=1（目前的值） | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds     | 1.664335           |
+| probability_temperature=1.2           | 0.9502487562189055 |                                  | 1.865391           |
+| probability_temperature=1.4           |                    |                                  |                    |
 
 ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区间，selected_radio会从start线性增长到end
 
 | 类型                  | 最优值             | 运行时间                     | 收敛轮次（百万轮） |
 | --------------------- | ------------------ | ---------------------------- | ------------------ |
-| ESR_warm_up_ratio=0.5 |                    |                              |                    |
+| ESR_warm_up_ratio=0.5 | 0.9817351598173516 |                              | 1.684735           |
 | ESR_warm_up_ratio=0.6 | 0.9953488372093023 | 9hours, 2 minutes, 8 seconds | 1.664335           |
-| ESR_warm_up_ratio=0.7 |                    |                              |                    |
+| ESR_warm_up_ratio=0.7 | 0.9715639810426541 |                              | 1.885191           |
 | ESR_warm_up_ratio=0.8 |                    |                              |                    |
 |                       |                    |                              |                    |
 
@@ -1047,8 +1065,9 @@ ESR_warm_up_ratio: 0.6  #热身区间占总训练轮次的比例。在热身区�
 | SMAC     | 3s5z_vs_3s6z               | super hard                       | 3day         |
 | GRF      | academy_corner             | 足球比赛的角球罚球场景，11_vs_11 |              |
 | GRF      | academy_counterattack_hard | 我方球门的防守反击场景，4_v_2    |              |
-| SMACV2   | terran_10_vs_11            | 人族随机对战，10_vs_11           |              |
+| SMACV2   | protoss_10_vs_10           | 神族随机对战，10_vs_10           |              |
 | SMACV2   | terran_10_vs_10            | 人族随机对战，10_vs_10           |              |
+| SMACV2   | zerg_10_vs_10              | 虫族随机对战，10_vs_10           |              |
 
 在奖励正常和奖励稀疏下各跑一次，所以一共16个曲线图
 
@@ -1135,62 +1154,80 @@ PER，DIFFER，SUPER：需要运行4+4，8次
 
 ### 实验结果记录
 
+1号：方学长服务器：121.248.201.30（同时跑四个可能暴死进程，所以同时跑三个）
+
+2号：乔学长服务器：121.248.201.11
+
+3号：沈学姐服务器：Todesk 774 340 177（可以同时跑四个）
+
 **SMAC-奖励正常**
 
-| 算法       | 2s3z               | 3s_vs_3z | 10m_vs_11m         | 3s5z_vs_3s6z |
-| ---------- | ------------------ | -------- | ------------------ | ------------ |
-| PER        | 在跑               | 在跑     | 0.565833893421164  | 在跑         |
-| SUPER      | 在跑               |          | 0.678294553976223  |              |
-| DIFFER     |                    |          | 0.7344632768361582 |              |
-| 我们的方法 |                    |          |                    |              |
-| kaleiscope | 0.9095477386934674 |          |                    |              |
+| 算法         | 2s3z               | MMM2          | 10m_vs_11m         | 3s5z_vs_3s6z |
+| ------------ | ------------------ | ------------- | ------------------ | ------------ |
+| PER          | 0.9765258215962441 | 在跑-3号      | 0.565833893421164  | 在跑-1号     |
+| SUPER        | 在跑-1号           | 在跑-3号      | 0.678294553976223  | 在跑-3号     |
+| DIFFER       | 在跑-3号           | 在跑-服务器10 | 0.7344632768361582 | 在跑-1号     |
+| 我们的方法   |                    |               |                    |              |
+| kaleiscope   | 0.9095477386934674 | 在跑-服务器10 |                    |              |
+| ices         | 0.9711538461538461 |               |                    |              |
+| qmix（可选） |                    |               |                    |              |
 
 **SMAC-奖励稀疏**
 
-| 算法       | 2s3z | 3s_vs_3z | 10m_vs_11m          | 3s5z_vs_3s6z |
-| ---------- | ---- | -------- | ------------------- | ------------ |
-| PER        |      |          | 0.20669463632415203 |              |
-| SUPER      |      |          | 0.602470292252863   |              |
-| DIFFER     |      |          | 0.09571788413098237 |              |
-| 我们的方法 |      |          |                     |              |
-| kaleiscope |      |          |                     |              |
+| 算法         | 2s3z | MMM2 | 10m_vs_11m          | 3s5z_vs_3s6z |
+| ------------ | ---- | ---- | ------------------- | ------------ |
+| PER          |      |      | 0.20669463632415203 |              |
+| SUPER        |      |      | 0.602470292252863   |              |
+| DIFFER       |      |      | 0.09571788413098237 |              |
+| 我们的方法   |      |      |                     |              |
+| kaleiscope   |      |      |                     |              |
+| ices         |      |      |                     |              |
+| qmix（可选） |      |      |                     |              |
 
 **GRF-奖励正常**
 
-| 算法       | academy_corner     | academy_counterattack_hard |
-| ---------- | ------------------ | -------------------------- |
-| PER        | 0.509775110253782  | 0.671561295825965          |
-| SUPER      | 0.742709902951855  | 0.793875645917204          |
-| DIFFER     | 0.2767857142857143 | 0.09433962264150944        |
-| 我们的方法 |                    |                            |
-| kaleiscope |                    |                            |
+| 算法         | academy_corner     | academy_counterattack_hard |
+| ------------ | ------------------ | -------------------------- |
+| PER          | 0.509775110253782  | 0.671561295825965          |
+| SUPER        | 0.742709902951855  | 0.793875645917204          |
+| DIFFER       | 0.2767857142857143 | 0.09433962264150944        |
+| 我们的方法   |                    |                            |
+| kaleiscope   |                    |                            |
+| ices         |                    |                            |
+| qmix（可选） |                    |                            |
 
 **GRF-奖励稀疏**
 
-| 算法       | academy_corner      | academy_counterattack_hard |
-| ---------- | ------------------- | -------------------------- |
-| PER        | 0.692256181513049   | 0.181245637552827          |
-| SUPER      | 0.713048885163406   | 0.347565307296136          |
-| DIFFER     | 0.09722222222222222 | 0.2840909090909091         |
-| 我们的方法 |                     |                            |
-| kaleiscope |                     |                            |
+| 算法         | academy_corner      | academy_counterattack_hard |
+| ------------ | ------------------- | -------------------------- |
+| PER          | 0.692256181513049   | 0.181245637552827          |
+| SUPER        | 0.713048885163406   | 0.347565307296136          |
+| DIFFER       | 0.09722222222222222 | 0.2840909090909091         |
+| 我们的方法   |                     |                            |
+| kaleiscope   |                     |                            |
+| ices         |                     |                            |
+| qmix（可选） |                     |                            |
 
 **SMACV2-奖励正常**
 
-| 算法       | terran_5_vs_5 | terran_10_vs_10 |
-| ---------- | ------------- | --------------- |
-| PER        |               |                 |
-| SUPER      |               |                 |
-| DIFFER     |               |                 |
-| 我们的方法 |               |                 |
-| kaleiscope |               |                 |
+| 算法         | terran_10_vs_10 |      | protoss_10_vs_10 | zerg_10_vs_10 |
+| ------------ | --------------- | ---- | ---------------- | ------------- |
+| PER          |                 |      |                  |               |
+| SUPER        |                 |      |                  |               |
+| DIFFER       |                 |      |                  |               |
+| 我们的方法   |                 |      |                  |               |
+| kaleiscope   |                 |      |                  |               |
+| ices         |                 |      |                  |               |
+| qmix（可选） |                 |      |                  |               |
 
 **SMACV2-奖励稀疏**
 
-| 算法       | terran_5_vs_5 | terran_10_vs_10 |
-| ---------- | ------------- | --------------- |
-| PER        |               |                 |
-| SUPER      |               |                 |
-| DIFFER     |               |                 |
-| 我们的方法 |               |                 |
-| kaleiscope |               |                 |
+| 算法         | terran_10_vs_10 | protoss_10_vs_10 | zerg_10_vs_10 |
+| ------------ | --------------- | ---------------- | ------------- |
+| PER          |                 |                  |               |
+| SUPER        |                 |                  |               |
+| DIFFER       |                 |                  |               |
+| 我们的方法   |                 |                  |               |
+| kaleiscope   |                 |                  |               |
+| ices         |                 |                  |               |
+| qmix（可选） |                 |                  |               |
