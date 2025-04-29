@@ -8,6 +8,7 @@ from .vdn_differ import VDN_Differ_Learner
 from .qmix_newdiffer_test import INSPIRE_Learner
 from .qmix_newdiffer__ESR import INSPIRE_Learner as INSPIRE_Learner_v0
 from .qmix_newdiffer_ESRv1 import INSPIRE_Learner as INSPIRE_Learner_v1
+from .qmix_newdiffer_v2 import INSPIRE_Learner as INSPIRE_Learner_v2
 from .qmix_super import SUPER_Learner
 from .qmix_per import PER_Learner
 from .QMIX_Kalei import Kalei_NQLearner
@@ -31,6 +32,7 @@ REGISTRY["vdn_differ"] = VDN_Differ_Learner
 REGISTRY["inspire_learner"] = INSPIRE_Learner
 REGISTRY["inspire_learner_v0"] = INSPIRE_Learner_v0
 REGISTRY["inspire_learner_v1"] = INSPIRE_Learner_v1
+REGISTRY["inspire_learner_v2"] = INSPIRE_Learner_v2
 #super_qmix
 REGISTRY["super_learner"] = SUPER_Learner
 #per_qmix

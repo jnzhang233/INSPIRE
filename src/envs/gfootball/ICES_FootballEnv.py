@@ -25,6 +25,7 @@ class ICES_FootballEnv(MultiAgentEnv):
             write_video=False,
             number_of_right_players_agent_controls=0,
             seed=0,
+            obs_dim = 34,
             sight_field=0.5,
             state_timestep_number=False
     ):
@@ -49,13 +50,7 @@ class ICES_FootballEnv(MultiAgentEnv):
         self.seed = seed
 
         # 针对qplex的obs_dim参数，但是目前不知道怎么得到这个参数，所以写死
-        self.obs_dim = None
-        if self.env_name == "academy_3_vs_1_with_keeper":
-            self.obs_dim = 26
-        if self.env_name == "academy_corner":
-            self.obs_dim = 34
-        if self.env_name == "academy_3_vs_1_with_keeper":
-            self.obs_dim = 34
+        self.obs_dim = obs_dim
 
         self.env = football_env.create_environment(
             write_full_episode_dumps=self.write_full_episode_dumps,
@@ -109,8 +104,12 @@ class ICES_FootballEnv(MultiAgentEnv):
                 full_obs["left_team_direction"][-self.n_agents :].reshape(-1)
             )
 
-            simple_obs.append(full_obs["right_team"].reshape(-1))
-            simple_obs.append(full_obs["right_team_direction"].reshape(-1))
+            simple_obs.append(full_obs["right_team"][0])
+            simple_obs.append(full_obs["right_team"][1])
+            simple_obs.append(full_obs["right_team"][2])
+            simple_obs.append(full_obs["right_team_direction"][0])
+            simple_obs.append(full_obs["right_team_direction"][1])
+            simple_obs.append(full_obs["right_team_direction"][2])
 
             simple_obs.append(full_obs["ball"])
             simple_obs.append(full_obs["ball_direction"])
@@ -135,8 +134,12 @@ class ICES_FootballEnv(MultiAgentEnv):
                 ).reshape(-1)
             )
 
-            simple_obs.append((full_obs["right_team"] - ego_position).reshape(-1))
-            simple_obs.append(full_obs["right_team_direction"].reshape(-1))
+            simple_obs.append(full_obs["right_team"][0] - ego_position)
+            simple_obs.append(full_obs["right_team"][1] - ego_position)
+            simple_obs.append(full_obs["right_team"][2] - ego_position)
+            simple_obs.append(full_obs["right_team_direction"][0])
+            simple_obs.append(full_obs["right_team_direction"][1])
+            simple_obs.append(full_obs["right_team_direction"][2])
 
             simple_obs.append(full_obs["ball"][:2] - ego_position)
             simple_obs.append(full_obs["ball"][-1].reshape(-1))

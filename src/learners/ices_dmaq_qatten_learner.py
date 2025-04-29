@@ -354,7 +354,7 @@ class ICES_DMAQ_qattenLearner:
 
             cur_max_actions_onehot = th.zeros(
                 cur_max_actions.squeeze(3).shape + (self.n_actions,)
-            ).cuda()
+            ).to(self.args.device)
             cur_max_actions_onehot = cur_max_actions_onehot.scatter_(
                 3, cur_max_actions, 1
             )

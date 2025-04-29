@@ -1,6 +1,6 @@
 from envs import REGISTRY as env_REGISTRY
 from functools import partial
-from components.episode_buffer import EpisodeBatch
+from components.ices_grf_episode_buffer import EpisodeBatch
 import numpy as np
 import csv
 import os
@@ -59,16 +59,16 @@ class EpisodeRunner:
         self.env.reset()
         self.t = 0
 
-    def writereward(self, win_rate, step):
-        if os.path.isfile(self.csv_path):
-            with open(self.csv_path, "a+") as f:
-                csv_write = csv.writer(f)
-                csv_write.writerow([step, win_rate])
-        else:
-            with open(self.csv_path, "w") as f:
-                csv_write = csv.writer(f)
-                csv_write.writerow(["step", "win_rate"])
-                csv_write.writerow([step, win_rate])
+    # def writereward(self, win_rate, step):
+    #     if os.path.isfile(self.csv_path):
+    #         with open(self.csv_path, "a+") as f:
+    #             csv_write = csv.writer(f)
+    #             csv_write.writerow([step, win_rate])
+    #     else:
+    #         with open(self.csv_path, "w") as f:
+    #             csv_write = csv.writer(f)
+    #             csv_write.writerow(["step", "win_rate"])
+    #             csv_write.writerow([step, win_rate])
 
     def run(self, test_mode=False):
         self.reset()
@@ -141,7 +141,7 @@ class EpisodeRunner:
             cur_returns_mean = np.array(
                 [0 if item <= 0 else 1 for item in cur_returns]
             ).mean()
-            self.writereward(cur_returns_mean, self.t_env)
+            # self.writereward(cur_returns_mean, self.t_env)
 
         if test_mode and (len(self.test_returns) == self.args.test_nepisode):
             self._log(cur_returns, cur_stats, log_prefix)

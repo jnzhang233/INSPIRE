@@ -371,7 +371,68 @@ runner = episode_inspire
 
 1. pyro:pip3 install pyro-ppl
 
-2. 更新了src/config/algs/ices.yaml,ices_QPLEX.yaml（GRF的）
+2. 更新了src/config/algs/ices.yaml,ices_QPLEX.yaml（GRF的），内容：
+
+   ```yaml
+   # --- QMIX specific parameters ---
+   
+   # use epsilon greedy action selector
+   action_selector: "epsilon_expl"
+   epsilon_start: 1.0
+   epsilon_finish: 0.0
+   epsilon_anneal_time: 50000
+   
+   runner: "episode_ices"
+   run: "ices_run_grf"
+   
+   buffer_size: 5000
+   
+   # update the target network every {} episodes
+   target_update_interval: 200
+   
+   # use the Q_Learner to train
+   agent_output_type: "q"
+   learner: "ices_QPLEX"
+   double_q: True
+   mixer: "dmaq_qatten"
+   mixing_embed_dim: 32
+   hypernet_embed: 64
+   adv_hypernet_layers: 1
+   adv_hypernet_embed: 64
+   
+   num_kernel: 4
+   is_minus_one: True
+   is_adv_attention: True
+   is_stop_gradient: True
+   
+   # Qatten coefficient
+   n_head: 4
+   attend_reg_coef: 0.001
+   state_bias: True
+   mask_dead: False
+   weighted_head: False
+   nonlinear: False
+   
+   num_circle: 2
+   
+   embedding_dim: 4
+   hidden_dim: 64
+   z_dim: 16
+   pred_s_len: 1
+   world_bl_lr: 0.0001
+   world_lr: 0.0001
+   world_clip_param: 0.1
+   world_gamma: 0.01
+   weight_decay: 0
+   int_sign: False
+   
+   agent: "ices_grf"
+   mac: "ices_mac"
+   name: "ices_QPlex"
+   
+   #修正默认参数
+   obs_agent_id: False
+   ```
 
 3. 在smacv1和smacv2的starcraft.py中添加了专用函数
 
@@ -381,13 +442,51 @@ runner = episode_inspire
 
 6. 更新了src/runners/parallel_runner_ices.py
 
-7. 在modules，更新了src/modules/agents/ices_n_rnn_agent.py，更新了src/modules/exp，src/modules/agents/ices_agent.py，src/modules/ices
+7. 在modules，更新了src/modules/agents/ices_n_rnn_agent.py，更新了src/modules/exp，src/modules/agents/ices_agent.py，src/modules/ices。在ices_agent.py
+
+   ```python
+          forward函数开头加入 
+       if input_shape[0] == 1:
+               input_shape = input_shape[1:]
+               inputs = inputs.squeeze(0)
+   ```
+
+   
 
 8. 更新了src/utils/rl_utils.py
 
 9. 在src/components/action_selectors.py，更新了专用函数，添加import torch.nn.functional as F
 
-10. 更新了src/components/ices_episode_buffer.py，src/run/ices_run.py。在ices.yaml加入run:"ices_run"。在ices_run.py把from components.episode_buffer import ReplayBuffer改成from components.ices_episode_buffer import ReplayBuffer
+10. 更新了src/components/ices_episode_buffer.py，src/run/ices_run.py。在ices.yaml加入run:"ices_run"。在ices_run.py把from components.episode_buffer import ReplayBuffer改成from components.ices_episode_buffer import ReplayBuffer。在ices_run.py：
+
+    ```python
+    在run_sequential函数开头加入以下代码以配置必要参数
+    # 根据grf地图来确定必要参数
+        if args.env == "ices_gfootball":
+            if args.env_args["map_name"] == "academy_3_vs_1_with_keeper":
+                args.int_ratio = 0.2
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.001
+                args.unit_dim = 26
+            elif args.env_args["map_name"] == "academy_corner":
+                args.int_ratio = 0.1
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.002
+                args.unit_dim = 34
+            elif args.env_args["map_name"] == "academy_counterattack_hard":
+                args.int_ratio = 0.05
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.005
+                args.unit_dim = 34
+            else:
+                args.int_ratio = 0.05
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.005
+                args.unit_dim = 34
+        args.env_args["obs_dim"] = args.unit_dim
+    ```
+
+    在ICES_episode_buffer注释掉writereward函数（62行，144行）
 
 11. 在utils/rl_utils.py，加入以下函数
 
@@ -414,7 +513,54 @@ runner = episode_inspire
 
     并把learner的build_td_lambda_targets改成build_td_lambda_targets_ices
 
-ICES-GRF移植做到了grf的环境，还没做完
+12. 加入ICES_FootballEnv，是根据ICES_GRF的GRF环境文件加了我们GRF环境init函数的输入，然后加入一个obs_dim参数即可。
+
+13. 在config/default.yaml，加入burn_in_period: 32
+
+14. 加入ices_run_grf,ices_grf_episode_buffer,ices_prioritize,ices_sum_tree。注释掉ices_run_grf的模型保存部分(282-296行)。
+
+15. 在ices_run_grf.py：
+
+    ```python
+    在run_sequential函数开头加入以下代码以配置必要参数
+    # 根据grf地图来确定必要参数
+        if args.env == "ices_gfootball":
+            if args.env_args["map_name"] == "academy_3_vs_1_with_keeper":
+                args.int_ratio = 0.2
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.001
+                args.unit_dim = 26
+            elif args.env_args["map_name"] == "academy_corner":
+                args.int_ratio = 0.1
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.002
+                args.unit_dim = 34
+            elif args.env_args["map_name"] == "academy_counterattack_hard":
+                args.int_ratio = 0.05
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.005
+                args.unit_dim = 34
+            else:
+                args.int_ratio = 0.05
+                args.int_finish = 0.05
+                args.int_ent_coef = 0.005
+                args.unit_dim = 34
+        args.env_args["obs_dim"] = args.unit_dim
+    ```
+
+16. 添加了src/controllers/ices_based_n_controller.py，src/controllers/ices_basic_controller.py。对src/controllers/ices_n_controller.py的importNMAC，改为
+
+    ```
+    from .ices_based_n_controller import NMAC
+    ```
+
+    对ices_based_n_controller.py的importMAC，改为：
+
+    ```
+    from .ices_basic_controller import BasicMAC
+    ```
+
+
 
 ## 运行指令：
 
@@ -438,7 +584,9 @@ kalei(QMIX版本，用在smac):python src/main.py --config=kalei/Kalei_qmix_rnn 
 
 kalei(VDN版本，用在grf)：python src/main.py --config=kalei/Kalei_vdn_rnn --env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 t_max=2005000 跑起来特别特别特别慢，要尽快跑
 
-ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=2005000
+ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=2s3z t_max=10050000
+
+ICES_GRF:python src/main.py  --config=ices_QPLEX --env-config=ices_gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=11 env_args.time_limit=400 t_max=2005000   **注意：是ices_gfootball，不是gfootball**。num_agent=11直接全程挂0了，改成num_agents=4试试。
 
 
 
@@ -447,8 +595,16 @@ ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=
 根据运行环境做修改：
 
 1. SMACV1：--env-config=sc2 with env_args.map_name=地图名
+
 2. SMACV2：--env-config=sc2_v2_zerg(地图名) with 。SMACV2是在args/envs里面的三个sc2_v2_文件里面调参数的，也可以每个地图单独调好然后保存，到时候改一下--env-config参数就可以调用到对应的
+
 3. GRF:--env-config=gfootball with env_args.map_name=academy_3_vs_1_with_keeper env_args.num_agents=3 env_args.time_limit=400 。换地图的时候要自己查一下map_name对应的num_agents和time_limit两个参数并填上。
+
+   --env-config=gfootball with env_args.map_name=academy_corner env_args.num_agents=11 env_args.time_limit=400
+
+   --env-config=gfootball with env_args.map_name=academy_counterattack_hard env_args.num_agents=11 env_args.time_limit=400
+
+   
 
 ### 方法测试
 
@@ -518,7 +674,9 @@ ices：python src/main.py --config=ices --env-config=sc2 with env_args.map_name=
 
 **目前在跑（12服务器）：**
 
+ices_grf：academy_corner/ices_QPlex/2
 
+ices_smac:/2s3z/ices/5
 
 **目前在跑（10服务器）：**
 

@@ -7,7 +7,7 @@ epsilon_finish: 0.0
 epsilon_anneal_time: 50000
 
 runner: "episode_ices"
-run: "ices_run"
+run: "ices_run_grf"
 
 buffer_size: 5000
 
@@ -50,6 +50,9 @@ world_gamma: 0.01
 weight_decay: 0
 int_sign: False
 
-agent: "ices" 
+agent: "ices_grf"
 mac: "ices_mac"
 name: "ices_QPlex"
+
+#修正默认参数
+obs_agent_id: False

@@ -1,6 +1,6 @@
 from modules.agents import REGISTRY as agent_REGISTRY
 from components.action_selectors import REGISTRY as action_REGISTRY
-from .n_controller import NMAC
+from .ices_based_n_controller import NMAC
 import torch as th
 import torch.nn.functional as F
 import numpy as np

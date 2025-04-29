@@ -55,3 +55,6 @@ enable_parallel_computing: False
 cpu_inference: False
 #cpu_inference: False
 asn_hidden_size: 32 # 64
+
+#ices特有
+burn_in_period: 32
