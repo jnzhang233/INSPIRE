@@ -8,7 +8,7 @@ from components.episode_buffer import EpisodeBatch
 from modules.mixers.nmix import Mixer
 from modules.mixers.qatten import QattenMixer
 from modules.mixers.vdn import VDNMixer
-from utils.rl_utils import build_td_lambda_targets, build_q_lambda_targets
+from utils.rl_utils import build_td_lambda_targets_qmix, build_q_lambda_targets
 from utils.th_utils import get_parameters_num
 
 
@@ -46,7 +46,7 @@ def calculate_n_step_td_target(target_mixer, target_max_qvals, batch, rewards, t
             qvals = target_mixer(qvals, batch["state"])
             targets = build_q_lambda_targets(rewards, terminated, mask, target_max_qvals, qvals, gamma, td_lambda)
         else:
-            targets = build_td_lambda_targets(rewards, terminated, mask, target_max_qvals, gamma, td_lambda)
+            targets = build_td_lambda_targets_qmix(rewards, terminated, mask, target_max_qvals, gamma, td_lambda)
         return targets.detach()
 
 

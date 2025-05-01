@@ -384,7 +384,7 @@ class INSPIRE_Learner:
         re_mask_visible = visibility_matrix.to(torch.bool)
 
         # 进行条件赋值
-        receive_list = th.where(re_mask_notself & re_mask_visible , share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
+        receive_list = th.where(re_mask_notself, share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
                                 receive_list)
         # 每个agent取其接收值的最大值
         abs_receive = torch.abs(receive_list)

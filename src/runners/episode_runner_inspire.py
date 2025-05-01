@@ -1,3 +1,4 @@
+import torch
 from envs import REGISTRY as env_REGISTRY
 from functools import partial
 from components.episode_buffer import EpisodeBatch
@@ -88,10 +89,9 @@ class EpisodeRunner:
                 "actions": cpu_actions,
                 "reward": [(reward,)],
                 "terminated": [(terminated != env_info.get("episode_limit", False),)],
-                "indi_terminated": [self.env.get_indi_terminated()],
-                "visibility_matrix": [self.env.get_ally_visibility_matrix()]
+                "indi_terminated": torch.tensor([self.env.get_indi_terminated()]).to(torch.float),
+                "visibility_matrix": torch.tensor([self.env.get_ally_visibility_matrix()]).to(torch.float)
             }
-
             self.batch.update(post_transition_data, ts=self.t)
 
             if self.args.evaluate:
