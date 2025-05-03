@@ -40,10 +40,6 @@ class INSPIRE_Learner:
 
         self.log_stats_t = -self.args.learner_log_interval - 1
 
-        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
-        # 修改部分：使用评分器
-        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
-
 
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
         # Get the relevant quantities
@@ -338,7 +334,9 @@ class INSPIRE_Learner:
             # 直到这里，计算的是高斯概率密度函数，下面需要进行变换以满足需求
             probabilities = -probabilities  # 沿x轴翻转，实现越靠近均值的td-error概率越小
             probabilities = probabilities - torch.min(probabilities)  # 减去最小值以保证所有值≥0
-            probabilities_sum += probabilities #加上相对于这个概率分布的概率密度函数
+            #计算接收值的视野矩阵掩膜
+            visible_mask = visibility_matrix[:,:,agent_index]
+            probabilities_sum += probabilities * visible_mask #加上相对于这个概率分布的概率密度函数
         # 对每个batch的每个agent的td-error，做归一化以得到概率分布
         probabilities = probabilities_sum / (torch.sum(probabilities_sum,dim = 1,keepdim=True).expand(self.batch_size, self.seq_len, self.n_agents) + float(self.args.min_eps))
 
@@ -381,10 +379,14 @@ class INSPIRE_Learner:
         re_mask_notself = re_mask_notself.to(self.args.device)
 
         #创建禁止向不可见对象分享经验的掩膜
-        re_mask_visible = visibility_matrix.to(torch.bool)
+        re_mask_visible = visibility_matrix.to(torch.bool).to(self.args.device)
 
         # 进行条件赋值
-        receive_list = th.where(re_mask_notself, share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
+        if self.args.use_visible_matrix == True:
+            receive_list = th.where(re_mask_notself & re_mask_visible, share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
+                                    receive_list)
+        else:
+            receive_list = th.where(re_mask_notself, share_list.unsqueeze(-1).expand(-1, -1, -1, self.n_agents),
                                 receive_list)
         # 每个agent取其接收值的最大值
         abs_receive = torch.abs(receive_list)
