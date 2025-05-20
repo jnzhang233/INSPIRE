@@ -51,9 +51,6 @@ class INSPIRE_Learner:
         avail_actions = batch["avail_actions"]
         indi_terminated = batch["indi_terminated"][:, :-1].float()
         visibility_matrix = batch["visibility_matrix"][:, :-1].float()
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #修改部分：transformer推理
-        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
         # Calculate estimated Q-Values
         mac_out = []
         embedding_out = []
@@ -63,10 +60,6 @@ class INSPIRE_Learner:
             mac_out.append(agent_outs)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        # 修改部分：格式化visibility_matrix
-        # —————————————————————————————————————————————————————————————————————————————————————————————————————————
         batch_size,seq,n_agents= visibility_matrix.shape
         matrix = torch.zeros((batch_size,seq,n_agents,n_agents),dtype=torch.int)
         visibility_matrix = visibility_matrix.to(torch.int)
@@ -75,6 +68,7 @@ class INSPIRE_Learner:
         visibility_matrix = matrix
         visibility_matrix = visibility_matrix.to(torch.bool)
         visibility_matrix = visibility_matrix == False #反转一下做掩膜，让在视野范围的为1，不在视野范围内的为0
+        visibility_matrix = visibility_matrix.to(self.args.device)
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
 
@@ -125,9 +119,6 @@ class INSPIRE_Learner:
 
         # Normal L2 loss, take mean over actual data。这个是mix网络的loss。
         mixer_loss = (masked_td_error ** 2).sum() / mask.sum()
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #以下是DIFEFR独有的改进部分
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
         # Optimise。优化部分
         self.mixer_optimiser.zero_grad()
@@ -163,14 +154,8 @@ class INSPIRE_Learner:
         #上掩膜去除垃圾数据
         masked_q_td_error = q_td_error * q_mask
 
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #经验分享与接收算法
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         masked_q_td_error,q_mask = self.ESR_with_priority(masked_q_td_error,visibility_matrix = visibility_matrix, t=t)
                                                                #注意，会覆盖原有的masked_q_td_error。不过后续运算过程加不加这个函数都一样
-
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-
         #计算td-error的采样权重和采样比例
         q_selected_weight, selected_ratio = self.select_trajectory(masked_q_td_error.abs(), q_mask, t_env)
         q_selected_weight = q_selected_weight.clone().detach()
@@ -285,11 +270,6 @@ class INSPIRE_Learner:
         each_batch_mean = th.mean(masked_q_td_error, dim=1) #计算均值
         each_batch_std = th.std(masked_q_td_error, dim=1) #计算标准差
 
-        # 更新：2025.4.10，直接使用tensor的矩阵运算
-        # for i in range(each_batch_mean.shape[0]):
-        #     for j in range(self.args.n_agents):
-        #         down_value[i][j] = each_batch_mean[i][j] - each_batch_std[i][j]
-        #         up_value[i][j] = each_batch_mean[i][j] + each_batch_std[i][j]
         down_value = each_batch_mean - each_batch_std
         up_value = each_batch_mean + each_batch_std
         return each_batch_mean, each_batch_std, down_value, up_value
@@ -309,9 +289,6 @@ class INSPIRE_Learner:
         self.seq_len = masked_q_td_error.shape[1]
         self.n_agents = masked_q_td_error.shape[2]
 
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        # 新增的改进部分-更新分享TD-error的部分，让分享概率正比于值的极端性。
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         #计算共享td-error的清单
         # 计算每个agent的每个经验批次的方差和均值
         masked_q_td_error_clone = masked_q_td_error.clone().detach()  # 复制一下操作以防更改原值
@@ -362,9 +339,6 @@ class INSPIRE_Learner:
         share_list = masked_q_td_error_clone * share_gate_mask
         # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        # 新增的改进部分-更新接收TD-error的部分，让接收概率正比于极端性。
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
         # 计算接收td-error的清单
         #直接接收
         receive_list = torch.zeros(

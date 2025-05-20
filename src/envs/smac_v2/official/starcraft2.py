@@ -2,6 +2,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import time
+
 from envs.multiagentenv import MultiAgentEnv
 from .maps import get_map_params
 
@@ -2517,7 +2519,6 @@ class StarCraft2Env(MultiAgentEnv):
                     else:
                         matrix[agent][ally_agent] = 1
                         matrix[ally_agent][agent] = 1
-        # 格式化为一维列表。将每一行视为一个01字符串，转化为对应整数
         list = []
         for i in range(self.n_agents):
             row = matrix[i]
@@ -2529,316 +2530,345 @@ class StarCraft2Env(MultiAgentEnv):
         # __________________________________________________________________________
         # ICES专用修改
         # ___________________________________________________________________________
-        def _check_n_alive(self):
-            n_ally_alive = 0
-            n_enemy_alive = 0
+    def _check_n_alive(self):
+        n_ally_alive = 0
+        n_enemy_alive = 0
 
-            for al_id, al_unit in self.agents.items():
-                if al_unit.health != 0:
-                    n_ally_alive += 1
+        for al_id, al_unit in self.agents.items():
+            if al_unit.health != 0:
+                n_ally_alive += 1
 
+        for e_id, e_unit in self.enemies.items():
+            if e_unit.health != 0:
+                n_enemy_alive += 1
+
+        return n_ally_alive, n_enemy_alive
+
+    def get_unit_type_id_ICES(self, unit, ally):
+        """Returns the ID of unit type in the given scenario."""
+        if ally:  # use new SC2 unit types
+            type_id = unit.unit_type - self._min_unit_type
+        else:  # use default SC2 unit types
+            if self.map_type == "stalkers_and_zealots":
+                # id(Stalker) = 74, id(Zealot) = 73
+                type_id = unit.unit_type - 73
+            elif self.map_type == "colossi_stalkers_zealots":
+                # id(Stalker) = 74, id(Zealot) = 73, id(Colossus) = 4
+                if unit.unit_type == 4:
+                    type_id = 0
+                elif unit.unit_type == 74:
+                    type_id = 1
+                else:
+                    type_id = 2
+            elif self.map_type == "bane":
+                if unit.unit_type == 9:
+                    type_id = 0
+                else:
+                    type_id = 1
+            elif self.map_type == "MMM":
+                if unit.unit_type == 51:
+                    type_id = 0
+                elif unit.unit_type == 48:
+                    type_id = 1
+                else:
+                    type_id = 2
+            # for communication
+            elif self.map_type == "overload_roach":
+                # roach
+                type_id = 0
+            elif self.map_type == "overload_bane":
+                # baneling
+                type_id = 0
+            elif self.map_type == "bZ_hM":
+                if unit.unit_type == 107:
+                    # hydralisk
+                    type_id = 0
+                else:
+                    # medivacs
+                    type_id = 1
+            #新增smacv2的id
+            elif self.map_type == "zerg_gen":
+                if unit.unit_type == 107:
+                    type_id = 0
+                elif unit.unit_type == 105:
+                    type_id = 1
+                elif unit.unit_type == 7 or unit.unit_type == 9:
+                    type_id = 2
+                else:
+                    type_id = 0
+            elif self.map_type == "protoss_gen":
+                if unit.unit_type == 74:
+                    type_id = 0
+                elif unit.unit_type == 4:
+                    type_id = 1
+                elif unit.unit_type == 73:
+                    type_id = 2
+                else:
+                    type_id = 0
+            elif self.map_type == "terran_gen":
+                if unit.unit_type == 51:
+                    type_id = 0
+                elif unit.unit_type == 48:
+                    type_id = 1
+                elif unit.unit_type == 54:
+                    type_id = 2
+                else:
+                    type_id = 0
+        return type_id
+
+    def get_state_ICES(self):
+        """Returns the global state.
+        NOTE: This functon should not be used during decentralised execution.
+        """
+        if self.obs_instead_of_state:
+            obs_concat = np.concatenate(self.get_obs(), axis=0).astype(np.float32)
+            return obs_concat
+
+        nf_al = 4 + self.shield_bits_ally + self.unit_type_bits
+        nf_en = 3 + self.shield_bits_enemy + self.unit_type_bits
+
+        ally_state = np.zeros((self.n_agents, nf_al))
+        enemy_state = np.zeros((self.n_enemies, nf_en))
+
+        center_x = self.map_x / 2
+        center_y = self.map_y / 2
+
+        for al_id, al_unit in self.agents.items():
+            if al_unit.health > 0:
+                x = al_unit.pos.x
+                y = al_unit.pos.y
+                max_cd = self.unit_max_cooldown(al_unit)
+
+                ally_state[al_id, 0] = al_unit.health / al_unit.health_max  # health
+                if self.map_type == "MMM" and al_unit.unit_type == self.medivac_id:
+                    ally_state[al_id, 1] = al_unit.energy / max_cd  # energy
+                else:
+                    ally_state[al_id, 1] = al_unit.weapon_cooldown / max_cd  # cooldown
+                ally_state[al_id, 2] = (
+                                               x - center_x
+                                       ) / self.max_distance_x  # relative X
+                ally_state[al_id, 3] = (
+                                               y - center_y
+                                       ) / self.max_distance_y  # relative Y
+
+                ind = 4
+                if self.shield_bits_ally > 0:
+                    max_shield = self.unit_max_shield(al_unit)
+                    ally_state[al_id, ind] = al_unit.shield / max_shield  # shield
+                    ind += 1
+
+                if self.unit_type_bits > 0:
+                    type_id = self.get_unit_type_id_ICES(al_unit, True)
+                    if type_id + ind >= ally_state.shape[1]:
+                        type_id = ally_state.shape[1] - ind -1
+                    ally_state[al_id, ind + type_id] = 1
+
+        for e_id, e_unit in self.enemies.items():
+            if e_unit.health > 0:
+                x = e_unit.pos.x
+                y = e_unit.pos.y
+
+                enemy_state[e_id, 0] = e_unit.health / e_unit.health_max  # health
+                enemy_state[e_id, 1] = (
+                                               x - center_x
+                                       ) / self.max_distance_x  # relative X
+                enemy_state[e_id, 2] = (
+                                               y - center_y
+                                       ) / self.max_distance_y  # relative Y
+
+                ind = 3
+                if self.shield_bits_enemy > 0:
+                    max_shield = self.unit_max_shield(e_unit)
+                    enemy_state[e_id, ind] = e_unit.shield / max_shield  # shield
+                    ind += 1
+
+                if self.unit_type_bits > 0:
+                    type_id = self.get_unit_type_id_ICES(e_unit, False)
+                    enemy_state[e_id, ind + type_id] = 1
+
+        state = np.append(ally_state.flatten(), enemy_state.flatten())
+        if self.state_last_action:
+            state = np.append(state, self.last_action.flatten())
+        if self.state_timestep_number:
+            state = np.append(state, self._episode_steps / self.episode_limit)
+
+        state = state.astype(dtype=np.float32)
+
+        if self.debug:
+            logging.debug("STATE".center(60, "-"))
+            logging.debug("Ally state {}".format(ally_state))
+            logging.debug("Enemy state {}".format(enemy_state))
+            if self.state_last_action:
+                logging.debug("Last actions {}".format(self.last_action))
+
+        return state
+
+    def get_obs_agent_ICES(self, agent_id):
+        """Returns observation for agent_id. The observation is composed of:
+
+        - agent movement features (where it can move to, height information and pathing grid)
+        - enemy features (available_to_attack, health, relative_x, relative_y, shield, unit_type)
+        - ally features (visible, distance, relative_x, relative_y, shield, unit_type)
+        - agent unit features (health, shield, unit_type)
+
+        All of this information is flattened and concatenated into a list,
+        in the aforementioned order. To know the sizes of each of the
+        features inside the final list of features, take a look at the
+        functions ``get_obs_move_feats_size()``,
+        ``get_obs_enemy_feats_size()``, ``get_obs_ally_feats_size()`` and
+        ``get_obs_own_feats_size()``.
+
+        The size of the observation vector may vary, depending on the
+        environment configuration and type of units present in the map.
+        For instance, non-Protoss units will not have shields, movement
+        features may or may not include terrain height and pathing grid,
+        unit_type is not included if there is only one type of unit in the
+        map etc.).
+
+        NOTE: Agents should have access only to their local observations
+        during decentralised execution.
+        """
+        unit = self.get_unit_by_id(agent_id)
+
+        move_feats_dim = self.get_obs_move_feats_size()
+        enemy_feats_dim = self.get_obs_enemy_feats_size()
+        ally_feats_dim = self.get_obs_ally_feats_size()
+        own_feats_dim = self.get_obs_own_feats_size()
+
+        move_feats = np.zeros(move_feats_dim, dtype=np.float32)
+        enemy_feats = np.zeros(enemy_feats_dim, dtype=np.float32)
+        ally_feats = np.zeros(ally_feats_dim, dtype=np.float32)
+        own_feats = np.zeros(own_feats_dim, dtype=np.float32)
+
+        if unit.health > 0:  # otherwise dead, return all zeros
+            x = unit.pos.x
+            y = unit.pos.y
+            sight_range = self.unit_sight_range(agent_id)
+
+            # Movement features
+            avail_actions = self.get_avail_agent_actions(agent_id)
+            for m in range(self.n_actions_move):
+                move_feats[m] = avail_actions[m + 2]
+
+            ind = self.n_actions_move
+
+            if self.obs_pathing_grid:
+                move_feats[
+                ind: ind + self.n_obs_pathing
+                ] = self.get_surrounding_pathing(unit)
+                ind += self.n_obs_pathing
+
+            if self.obs_terrain_height:
+                move_feats[ind:] = self.get_surrounding_height(unit)
+
+            # Enemy features
             for e_id, e_unit in self.enemies.items():
-                if e_unit.health != 0:
-                    n_enemy_alive += 1
+                e_x = e_unit.pos.x
+                e_y = e_unit.pos.y
+                dist = self.distance(x, y, e_x, e_y)
 
-            return n_ally_alive, n_enemy_alive
-
-        def get_unit_type_id_ICES(self, unit, ally):
-            """Returns the ID of unit type in the given scenario."""
-            if ally:  # use new SC2 unit types
-                type_id = unit.unit_type - self._min_unit_type
-            else:  # use default SC2 unit types
-                if self.map_type == "stalkers_and_zealots":
-                    # id(Stalker) = 74, id(Zealot) = 73
-                    type_id = unit.unit_type - 73
-                elif self.map_type == "colossi_stalkers_zealots":
-                    # id(Stalker) = 74, id(Zealot) = 73, id(Colossus) = 4
-                    if unit.unit_type == 4:
-                        type_id = 0
-                    elif unit.unit_type == 74:
-                        type_id = 1
-                    else:
-                        type_id = 2
-                elif self.map_type == "bane":
-                    if unit.unit_type == 9:
-                        type_id = 0
-                    else:
-                        type_id = 1
-                elif self.map_type == "MMM":
-                    if unit.unit_type == 51:
-                        type_id = 0
-                    elif unit.unit_type == 48:
-                        type_id = 1
-                    else:
-                        type_id = 2
-                # for communication
-                elif self.map_type == "overload_roach":
-                    # roach
-                    type_id = 0
-                elif self.map_type == "overload_bane":
-                    # baneling
-                    type_id = 0
-                elif self.map_type == "bZ_hM":
-                    if unit.unit_type == 107:
-                        # hydralisk
-                        type_id = 0
-                    else:
-                        # medivacs
-                        type_id = 1
-
-            return type_id
-
-        def get_state_ICES(self):
-            """Returns the global state.
-            NOTE: This functon should not be used during decentralised execution.
-            """
-            if self.obs_instead_of_state:
-                obs_concat = np.concatenate(self.get_obs(), axis=0).astype(np.float32)
-                return obs_concat
-
-            nf_al = 4 + self.shield_bits_ally + self.unit_type_bits
-            nf_en = 3 + self.shield_bits_enemy + self.unit_type_bits
-
-            ally_state = np.zeros((self.n_agents, nf_al))
-            enemy_state = np.zeros((self.n_enemies, nf_en))
-
-            center_x = self.map_x / 2
-            center_y = self.map_y / 2
-
-            for al_id, al_unit in self.agents.items():
-                if al_unit.health > 0:
-                    x = al_unit.pos.x
-                    y = al_unit.pos.y
-                    max_cd = self.unit_max_cooldown(al_unit)
-
-                    ally_state[al_id, 0] = al_unit.health / al_unit.health_max  # health
-                    if self.map_type == "MMM" and al_unit.unit_type == self.medivac_id:
-                        ally_state[al_id, 1] = al_unit.energy / max_cd  # energy
-                    else:
-                        ally_state[al_id, 1] = al_unit.weapon_cooldown / max_cd  # cooldown
-                    ally_state[al_id, 2] = (
-                                                   x - center_x
-                                           ) / self.max_distance_x  # relative X
-                    ally_state[al_id, 3] = (
-                                                   y - center_y
-                                           ) / self.max_distance_y  # relative Y
+                if dist < sight_range and e_unit.health > 0:  # visible and alive
+                    # Sight range > shoot range
+                    enemy_feats[e_id, 0] = avail_actions[
+                        self.n_actions_no_attack + e_id
+                        ]  # available
+                    enemy_feats[e_id, 1] = dist / sight_range  # distance
+                    enemy_feats[e_id, 2] = (e_x - x) / sight_range  # relative X
+                    enemy_feats[e_id, 3] = (e_y - y) / sight_range  # relative Y
 
                     ind = 4
-                    if self.shield_bits_ally > 0:
-                        max_shield = self.unit_max_shield(al_unit)
-                        ally_state[al_id, ind] = al_unit.shield / max_shield  # shield
+                    if self.obs_all_health:
+                        enemy_feats[e_id, ind] = (
+                                e_unit.health / e_unit.health_max
+                        )  # health
                         ind += 1
-
-                    if self.unit_type_bits > 0:
-                        type_id = self.get_unit_type_id_ICES(al_unit, True)
-                        ally_state[al_id, ind + type_id] = 1
-
-            for e_id, e_unit in self.enemies.items():
-                if e_unit.health > 0:
-                    x = e_unit.pos.x
-                    y = e_unit.pos.y
-
-                    enemy_state[e_id, 0] = e_unit.health / e_unit.health_max  # health
-                    enemy_state[e_id, 1] = (
-                                                   x - center_x
-                                           ) / self.max_distance_x  # relative X
-                    enemy_state[e_id, 2] = (
-                                                   y - center_y
-                                           ) / self.max_distance_y  # relative Y
-
-                    ind = 3
-                    if self.shield_bits_enemy > 0:
-                        max_shield = self.unit_max_shield(e_unit)
-                        enemy_state[e_id, ind] = e_unit.shield / max_shield  # shield
-                        ind += 1
+                        if self.shield_bits_enemy > 0:
+                            max_shield = self.unit_max_shield(e_unit)
+                            enemy_feats[e_id, ind] = (
+                                    e_unit.shield / max_shield
+                            )  # shield
+                            ind += 1
 
                     if self.unit_type_bits > 0:
                         type_id = self.get_unit_type_id_ICES(e_unit, False)
-                        enemy_state[e_id, ind + type_id] = 1
+                        enemy_feats[e_id, ind + type_id] = 1  # unit type
 
-            state = np.append(ally_state.flatten(), enemy_state.flatten())
-            if self.state_last_action:
-                state = np.append(state, self.last_action.flatten())
-            if self.state_timestep_number:
-                state = np.append(state, self._episode_steps / self.episode_limit)
+            # Ally features
+            al_ids = [al_id for al_id in range(self.n_agents) if al_id != agent_id]
+            for i, al_id in enumerate(al_ids):
+                al_unit = self.get_unit_by_id(al_id)
+                al_x = al_unit.pos.x
+                al_y = al_unit.pos.y
+                dist = self.distance(x, y, al_x, al_y)
 
-            state = state.astype(dtype=np.float32)
+                if dist < sight_range and al_unit.health > 0:  # visible and alive
+                    ally_feats[i, 0] = 1  # visible
+                    ally_feats[i, 1] = dist / sight_range  # distance
+                    ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
+                    ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
 
-            if self.debug:
-                logging.debug("STATE".center(60, "-"))
-                logging.debug("Ally state {}".format(ally_state))
-                logging.debug("Enemy state {}".format(enemy_state))
-                if self.state_last_action:
-                    logging.debug("Last actions {}".format(self.last_action))
-
-            return state
-
-        def get_obs_agent_ICES(self, agent_id):
-            """Returns observation for agent_id. The observation is composed of:
-
-            - agent movement features (where it can move to, height information and pathing grid)
-            - enemy features (available_to_attack, health, relative_x, relative_y, shield, unit_type)
-            - ally features (visible, distance, relative_x, relative_y, shield, unit_type)
-            - agent unit features (health, shield, unit_type)
-
-            All of this information is flattened and concatenated into a list,
-            in the aforementioned order. To know the sizes of each of the
-            features inside the final list of features, take a look at the
-            functions ``get_obs_move_feats_size()``,
-            ``get_obs_enemy_feats_size()``, ``get_obs_ally_feats_size()`` and
-            ``get_obs_own_feats_size()``.
-
-            The size of the observation vector may vary, depending on the
-            environment configuration and type of units present in the map.
-            For instance, non-Protoss units will not have shields, movement
-            features may or may not include terrain height and pathing grid,
-            unit_type is not included if there is only one type of unit in the
-            map etc.).
-
-            NOTE: Agents should have access only to their local observations
-            during decentralised execution.
-            """
-            unit = self.get_unit_by_id(agent_id)
-
-            move_feats_dim = self.get_obs_move_feats_size()
-            enemy_feats_dim = self.get_obs_enemy_feats_size()
-            ally_feats_dim = self.get_obs_ally_feats_size()
-            own_feats_dim = self.get_obs_own_feats_size()
-
-            move_feats = np.zeros(move_feats_dim, dtype=np.float32)
-            enemy_feats = np.zeros(enemy_feats_dim, dtype=np.float32)
-            ally_feats = np.zeros(ally_feats_dim, dtype=np.float32)
-            own_feats = np.zeros(own_feats_dim, dtype=np.float32)
-
-            if unit.health > 0:  # otherwise dead, return all zeros
-                x = unit.pos.x
-                y = unit.pos.y
-                sight_range = self.unit_sight_range(agent_id)
-
-                # Movement features
-                avail_actions = self.get_avail_agent_actions(agent_id)
-                for m in range(self.n_actions_move):
-                    move_feats[m] = avail_actions[m + 2]
-
-                ind = self.n_actions_move
-
-                if self.obs_pathing_grid:
-                    move_feats[
-                    ind: ind + self.n_obs_pathing
-                    ] = self.get_surrounding_pathing(unit)
-                    ind += self.n_obs_pathing
-
-                if self.obs_terrain_height:
-                    move_feats[ind:] = self.get_surrounding_height(unit)
-
-                # Enemy features
-                for e_id, e_unit in self.enemies.items():
-                    e_x = e_unit.pos.x
-                    e_y = e_unit.pos.y
-                    dist = self.distance(x, y, e_x, e_y)
-
-                    if dist < sight_range and e_unit.health > 0:  # visible and alive
-                        # Sight range > shoot range
-                        enemy_feats[e_id, 0] = avail_actions[
-                            self.n_actions_no_attack + e_id
-                            ]  # available
-                        enemy_feats[e_id, 1] = dist / sight_range  # distance
-                        enemy_feats[e_id, 2] = (e_x - x) / sight_range  # relative X
-                        enemy_feats[e_id, 3] = (e_y - y) / sight_range  # relative Y
-
-                        ind = 4
-                        if self.obs_all_health:
-                            enemy_feats[e_id, ind] = (
-                                    e_unit.health / e_unit.health_max
-                            )  # health
-                            ind += 1
-                            if self.shield_bits_enemy > 0:
-                                max_shield = self.unit_max_shield(e_unit)
-                                enemy_feats[e_id, ind] = (
-                                        e_unit.shield / max_shield
-                                )  # shield
-                                ind += 1
-
-                        if self.unit_type_bits > 0:
-                            type_id = self.get_unit_type_id_ICES(e_unit, False)
-                            enemy_feats[e_id, ind + type_id] = 1  # unit type
-
-                # Ally features
-                al_ids = [al_id for al_id in range(self.n_agents) if al_id != agent_id]
-                for i, al_id in enumerate(al_ids):
-                    al_unit = self.get_unit_by_id(al_id)
-                    al_x = al_unit.pos.x
-                    al_y = al_unit.pos.y
-                    dist = self.distance(x, y, al_x, al_y)
-
-                    if dist < sight_range and al_unit.health > 0:  # visible and alive
-                        ally_feats[i, 0] = 1  # visible
-                        ally_feats[i, 1] = dist / sight_range  # distance
-                        ally_feats[i, 2] = (al_x - x) / sight_range  # relative X
-                        ally_feats[i, 3] = (al_y - y) / sight_range  # relative Y
-
-                        ind = 4
-                        if self.obs_all_health:
-                            ally_feats[i, ind] = (
-                                    al_unit.health / al_unit.health_max
-                            )  # health
-                            ind += 1
-                            if self.shield_bits_ally > 0:
-                                max_shield = self.unit_max_shield(al_unit)
-                                ally_feats[i, ind] = al_unit.shield / max_shield  # shield
-                                ind += 1
-
-                        if self.unit_type_bits > 0:
-                            type_id = self.get_unit_type_id_ICES(al_unit, True)
-                            ally_feats[i, ind + type_id] = 1
-                            ind += self.unit_type_bits
-
-                        if self.obs_last_action:
-                            ally_feats[i, ind:] = self.last_action[al_id]
-
-                # Own features
-                ind = 0
-                if self.obs_own_health:
-                    own_feats[ind] = unit.health / unit.health_max
-                    ind += 1
-                    if self.shield_bits_ally > 0:
-                        max_shield = self.unit_max_shield(unit)
-                        own_feats[ind] = unit.shield / max_shield
+                    ind = 4
+                    if self.obs_all_health:
+                        ally_feats[i, ind] = (
+                                al_unit.health / al_unit.health_max
+                        )  # health
                         ind += 1
+                        if self.shield_bits_ally > 0:
+                            max_shield = self.unit_max_shield(al_unit)
+                            ally_feats[i, ind] = al_unit.shield / max_shield  # shield
+                            ind += 1
 
-                if self.unit_type_bits > 0:
-                    type_id = self.get_unit_type_id_ICES(unit, True)
-                    own_feats[ind + type_id] = 1
+                    if self.unit_type_bits > 0:
+                        type_id = self.get_unit_type_id_ICES(al_unit, True)
+                        ally_feats[i, ind + type_id] = 1
+                        ind += self.unit_type_bits
 
-            agent_obs = np.concatenate(
-                (
-                    move_feats.flatten(),
-                    enemy_feats.flatten(),
-                    ally_feats.flatten(),
-                    own_feats.flatten(),
-                )
+                    if self.obs_last_action:
+                        ally_feats[i, ind:] = self.last_action[al_id]
+
+            # Own features
+            ind = 0
+            if self.obs_own_health:
+                own_feats[ind] = unit.health / unit.health_max
+                ind += 1
+                if self.shield_bits_ally > 0:
+                    max_shield = self.unit_max_shield(unit)
+                    own_feats[ind] = unit.shield / max_shield
+                    ind += 1
+
+            if self.unit_type_bits > 0:
+                type_id = self.get_unit_type_id_ICES(unit, True)
+                own_feats[ind + type_id] = 1
+
+        agent_obs = np.concatenate(
+            (
+                move_feats.flatten(),
+                enemy_feats.flatten(),
+                ally_feats.flatten(),
+                own_feats.flatten(),
             )
+        )
 
-            if self.obs_timestep_number:
-                agent_obs = np.append(agent_obs, self._episode_steps / self.episode_limit)
+        if self.obs_timestep_number:
+            agent_obs = np.append(agent_obs, self._episode_steps / self.episode_limit)
 
-            if self.debug:
-                logging.debug("Obs Agent: {}".format(agent_id).center(60, "-"))
-                logging.debug(
-                    "Avail. actions {}".format(self.get_avail_agent_actions(agent_id))
-                )
-                logging.debug("Move feats {}".format(move_feats))
-                logging.debug("Enemy feats {}".format(enemy_feats))
-                logging.debug("Ally feats {}".format(ally_feats))
-                logging.debug("Own feats {}".format(own_feats))
+        if self.debug:
+            logging.debug("Obs Agent: {}".format(agent_id).center(60, "-"))
+            logging.debug(
+                "Avail. actions {}".format(self.get_avail_agent_actions(agent_id))
+            )
+            logging.debug("Move feats {}".format(move_feats))
+            logging.debug("Enemy feats {}".format(enemy_feats))
+            logging.debug("Ally feats {}".format(ally_feats))
+            logging.debug("Own feats {}".format(own_feats))
 
-            return agent_obs
+        return agent_obs
 
-        def get_obs_ICES(self):
-            """Returns all agent observations in a list.
-            NOTE: Agents should have access only to their local observations
-            during decentralised execution.
-            """
-            agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
-            return agents_obs
+    def get_obs_ICES(self):
+        """Returns all agent observations in a list.
+        NOTE: Agents should have access only to their local observations
+        during decentralised execution.
+        """
+        agents_obs = [self.get_obs_agent(i) for i in range(self.n_agents)]
+        return agents_obs
 

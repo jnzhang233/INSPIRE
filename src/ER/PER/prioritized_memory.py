@@ -36,7 +36,7 @@ class PER_Memory(object):
         # 注：在实际执行中，这个PER是每次训练生成一个，采样后就丢弃的
 
         #使用torch的按概率分布采样函数计算采样结果。这里直接对[0,n-1]的列表进行采样，后面再实装值
-        sampled_pos = torch.multinomial(self.prob, n, replacement=True)
+        sampled_pos = torch.multinomial(self.prob.reshape(-1), n, replacement=True)
 
         #计算每个采样结果的坐标
         index = sampled_pos

@@ -87,4 +87,20 @@ class StarCraftCapabilityEnvWrapper(MultiAgentEnv):
     def close(self):
         return self.env.close()
 
+    #__________________________________________________
+    def get_indi_terminated(self):
+        return self.env.get_indi_terminated()
+
+    def get_ally_visibility_matrix(self):
+        return self.env.get_ally_visibility_matrix()
+
+    def get_unit_type_id_ICES(self):
+        return self.env.get_unit_type_id_ICES()
+
+    def get_state_ICES(self):
+        return self.env.get_state_ICES()
+
+    def get_obs_ICES(self):
+        return self.env.get_obs_ICES()
+
 

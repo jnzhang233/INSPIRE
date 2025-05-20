@@ -198,7 +198,6 @@ class GoogleFootballEnv(MultiAgentEnv):
                     else:
                         matrix[agent][ally_agent] = 1
                         matrix[ally_agent][agent] = 1
-        #格式化为一维列表。将每一行视为一个01字符串，转化为对应整数
         list = []
         for i in range(self.n_agents):
             row = matrix[i]

@@ -1,12 +1,15 @@
 import copy
+import time
+
 import numpy
 import torch
 from components.episode_buffer import EpisodeBatch
 from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 import torch as th
-from torch.optim import RMSprop
+from torch.optim import RMSprop, Adam
 from ER.PER.prioritized_memory import PER_Memory
+from modules.inspire_modules.transformer_scorer import Transformer_Scorer
 
 
 class INSPIRE_Learner:
@@ -27,15 +30,21 @@ class INSPIRE_Learner:
                 raise ValueError("Mixer {} not recognised.".format(args.mixer))
             self.target_mixer = copy.deepcopy(self.mixer)
 
-        self.mixer_params = list(self.mixer.parameters())
+        self.mixer_params = list(self.mixer.parameters())  # vdn的可学习参数为空
         self.q_params = list(mac.parameters())
-        self.mixer_optimiser = RMSprop(params=self.mixer_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
-        self.q_optimiser = RMSprop(params=self.q_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        # self.mixer_optimiser = Adam(params=self.mixer_params,  lr=args.lr, weight_decay=getattr(args, "weight_decay", 0))
+        self.q_optimiser = Adam(params=self.q_params, lr=args.lr, weight_decay=getattr(args, "weight_decay", 0))
+
+        # self.mixer_params = list(self.mixer.parameters())
+        # self.q_params = list(mac.parameters())
+        # self.mixer_optimiser = RMSprop(params=self.mixer_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        # self.q_optimiser = RMSprop(params=self.q_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
 
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)
 
         self.log_stats_t = -self.args.learner_log_interval - 1
+
 
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
         # Get the relevant quantities
@@ -46,13 +55,27 @@ class INSPIRE_Learner:
         mask[:, 1:] = mask[:, 1:] * (1 - terminated[:, :-1])
         avail_actions = batch["avail_actions"]
         indi_terminated = batch["indi_terminated"][:, :-1].float()
-
+        visibility_matrix = batch["visibility_matrix"][:, :-1].float()
+        # Calculate estimated Q-Values
         mac_out = []
+        embedding_out = []
         self.mac.init_hidden(batch.batch_size)
-        for t in range(batch.max_seq_length):
+        for t in range(batch.max_seq_length):#将transformer的forward拆为两步，从而获取embedding
             agent_outs = self.mac.forward(batch, t=t)
             mac_out.append(agent_outs)
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+        batch_size,seq,n_agents= visibility_matrix.shape
+        matrix = torch.zeros((batch_size,seq,n_agents,n_agents),dtype=torch.int)
+        visibility_matrix = visibility_matrix.to(torch.int)
+        for bit_position in range(n_agents):
+            matrix[:, :, :, bit_position] = (visibility_matrix >> (n_agents - 1  - bit_position)) & 1
+        visibility_matrix = matrix
+        visibility_matrix = visibility_matrix.to(torch.bool)
+        visibility_matrix = visibility_matrix == False #反转一下做掩膜，让在视野范围的为1，不在视野范围内的为0
+        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
+
 
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(3)  # Remove the last dim
@@ -101,12 +124,9 @@ class INSPIRE_Learner:
 
         # Normal L2 loss, take mean over actual data。这个是mix网络的loss。
         mixer_loss = (masked_td_error ** 2).sum() / mask.sum()
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #以下是DIFEFR独有的改进部分
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
         # Optimise。优化部分
-        self.mixer_optimiser.zero_grad()
+        # self.mixer_optimiser.zero_grad()
         chosen_action_qvals_clone.retain_grad() #the grad of qi。智能体i的梯度
         chosen_action_q_tot_vals.retain_grad() #the grad of qtot。智能体群的全局Q梯度
         mixer_loss.backward()#优化mixer
@@ -117,8 +137,8 @@ class INSPIRE_Learner:
         grad_qtot_qi = th.clamp(grad_l_qi/ grad_l_qtot, min=-10, max=10)#(B,T,n_agents)
 
         #裁剪mixer梯度，令其不大于args.grad_norm_clip
-        mixer_grad_norm = th.nn.utils.clip_grad_norm_(self.mixer_params, self.args.grad_norm_clip)
-        self.mixer_optimiser.step()#执行mixer更新
+        # mixer_grad_norm = th.nn.utils.clip_grad_norm_(self.mixer_params, self.args.grad_norm_clip)
+        # self.mixer_optimiser.step()#执行mixer更新
 
         #下面进行agent网络的更新
 
@@ -135,24 +155,17 @@ class INSPIRE_Learner:
         q_mask[:, 1:] = q_mask[:, 1:] * (1 - indi_terminated[:, :-1]) * (1 - terminated[:, :-1]).repeat(1, 1, self.args.n_agents)
         # q_mask[:, 1:] = q_mask[:, 1:] * (1 - indi_terminated[:, :-1])
         q_mask = q_mask.expand_as(q_td_error)
-
+        q2_mask = q_mask #存档以备信息记录
         #上掩膜去除垃圾数据
         masked_q_td_error = q_td_error * q_mask
 
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        #第0轮改进：基于正态分布的经验分享与接收算法
-        # ——————————————————————————————————————————————————————————————————————————————————————————————————————————
-        if self.args.use_ESR_based_on_normal_distribution:#使用基于正态分布的经验分享与接收算法来进行经验分享
-            masked_q_td_error,q2_mask = self.ESR_using_normal_distribution(
-                masked_q_td_error)  #注意，会覆盖原有的masked_q_td_error。不过后续运算过程加不加这个函数都一样
-        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
+        masked_q_td_error,q_mask = self.ESR_with_priority(masked_q_td_error,visibility_matrix = visibility_matrix, t=t)
+                                                               #注意，会覆盖原有的masked_q_td_error。不过后续运算过程加不加这个函数都一样
 
+        #——————————————————————————————————————————————————————————————————————————————————————————————————————————
 
         #计算td-error的采样权重和采样比例
-        if self.args.use_ESR_based_on_normal_distribution:#用了基于正态分布的经验分享与接收算法，需要用对应的q2_mask
-            q_selected_weight, selected_ratio = self.select_trajectory(masked_q_td_error.abs(), q2_mask, t_env)
-        else:
-            q_selected_weight, selected_ratio = self.select_trajectory(masked_q_td_error.abs(), q_mask, t_env)
+        q_selected_weight, selected_ratio = self.select_trajectory(masked_q_td_error.abs(), q_mask, t_env)
         q_selected_weight = q_selected_weight.clone().detach()
         # 0-out the targets that came from padded data
 
@@ -172,7 +185,7 @@ class INSPIRE_Learner:
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
             self.logger.log_stat("selected_ratio", selected_ratio, t_env)
             self.logger.log_stat("mixer_loss", mixer_loss.item(), t_env)
-            self.logger.log_stat("mixer_grad_norm", mixer_grad_norm, t_env)
+            # self.logger.log_stat("mixer_grad_norm", mixer_grad_norm, t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat("mixer_td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)
             self.logger.log_stat("mixer_target_mean", (targets * mask).sum().item()/mask_elems, t_env)
@@ -180,15 +193,12 @@ class INSPIRE_Learner:
             self.logger.log_stat("q_loss", q_loss.item(), t_env)
             self.logger.log_stat("q_grad_norm", q_grad_norm, t_env)
             q_mask_elems = q_mask.sum().item()
+            q2_mask_elems = q2_mask.sum().item()
             self.logger.log_stat("q_td_error_abs", (masked_q_td_error.abs().sum().item()/q_mask_elems), t_env)
-            self.logger.log_stat("q_q_taken_mean", (chosen_action_qvals * q_mask).sum().item()/(q_mask_elems), t_env)
-            self.logger.log_stat("mixer_target_mean", (q_targets * q_mask).sum().item()/(q_mask_elems), t_env)
-            self.logger.log_stat("reward_i_mean", (q_rewards * q_mask).sum().item()/(q_mask_elems), t_env)
-            if self.args.use_ESR_based_on_normal_distribution:
-                self.logger.log_stat("q_selected_weight_mean",
-                                     (q_selected_weight * q2_mask).sum().item() / (q2_mask.sum().item()), t_env)
-            else:
-                self.logger.log_stat("q_selected_weight_mean", (q_selected_weight * q_mask).sum().item()/(q_mask_elems), t_env)
+            self.logger.log_stat("q_q_taken_mean", (chosen_action_qvals * q2_mask).sum().item()/(q2_mask_elems), t_env)
+            self.logger.log_stat("mixer_target_mean", (q_targets * q2_mask).sum().item()/(q2_mask_elems), t_env)
+            self.logger.log_stat("reward_i_mean", (q_rewards * q2_mask).sum().item()/(q2_mask_elems), t_env)
+            self.logger.log_stat("q_selected_weight_mean", (q_selected_weight * q_mask).sum().item()/(q_mask_elems), t_env)
 
             self.log_stats_t = t_env
     
@@ -268,19 +278,19 @@ class INSPIRE_Learner:
         each_batch_mean = th.mean(masked_q_td_error, dim=1) #计算均值
         each_batch_std = th.std(masked_q_td_error, dim=1) #计算标准差
 
-        # 更新：2025.4.10，直接使用tensor的矩阵运算
-        # for i in range(each_batch_mean.shape[0]):
-        #     for j in range(self.args.n_agents):
-        #         down_value[i][j] = each_batch_mean[i][j] - each_batch_std[i][j]
-        #         up_value[i][j] = each_batch_mean[i][j] + each_batch_std[i][j]
         down_value = each_batch_mean - each_batch_std
         up_value = each_batch_mean + each_batch_std
         return each_batch_mean, each_batch_std, down_value, up_value
-    def ESR_using_normal_distribution(self,masked_q_td_error):
-        #函数：基于正态分布实现选择性的经验分享和接收算法
-        # 输入：masked_q_td_error，掩膜处理后的智能体个体TD-erorr矩阵
-        # 输出：received_q_td_error，masked_q_td_error和接收经验列表receive_list的组合
-        #      q_mask:掩膜，记录有效位置
+
+    def ESR_with_priority(self,masked_q_td_error,visibility_matrix,t):
+        #函数：基于正态分布实现选择性的经验分享和接收算法，这版本针对Transformer改过用法了
+        # 输入：
+        # masked_q_td_error，掩膜处理后的智能体个体TD-erorr矩阵.
+        # visibility_matrix:可见性矩阵.size为[batch_size,seq_len,n_agents.n_agents]
+        # t:时间步
+        # 输出：
+        # received_q_td_error，masked_q_td_error和接收经验列表receive_list的组合
+        # q_mask:掩膜，记录有效位置
 
         # 获取batch_size和seq_len的值
 
@@ -305,14 +315,16 @@ class INSPIRE_Learner:
         share_list = masked_q_td_error * share_gate_mask  # 使用掩膜生成分享清单
 
         # 计算接收td-error的清单
-        receive_list = torch.zeros([self.batch_size, self.seq_len, self.args.n_agents]).to(self.args.device)  # 创建一个空矩阵存received_experience
+        receive_list = torch.zeros([self.batch_size, self.seq_len, self.args.n_agents]).to(
+            self.args.device)  # 创建一个空矩阵存received_experience
         # 创建agent索引张量
         re_agent_indices = th.arange(self.args.n_agents)
         # 创建禁止向自己分享的掩膜
         re_mask_notself = (re_agent_indices.unsqueeze(0) != re_agent_indices.unsqueeze(1))  # (n_agents, n_agents)
         re_mask_notself = re_mask_notself.unsqueeze(0).unsqueeze(0).expand(self.batch_size, self.seq_len,
                                                                            self.args.n_agents,
-                                                                           self.args.n_agents).to(self.args.device)  # (batch_size, seq_len, n_agents, n_agents)
+                                                                           self.args.n_agents).to(
+            self.args.device)  # (batch_size, seq_len, n_agents, n_agents)
         # 创建确定接收对象的掩膜（仅接收在自己正态分布区间外的td-error）
         re_mask_up = (share_list.unsqueeze(-1) >= self.q_up_value.unsqueeze(1).unsqueeze(1).expand(self.batch_size,
                                                                                                    self.seq_len,
@@ -322,10 +334,16 @@ class INSPIRE_Learner:
                                                                                                        self.seq_len,
                                                                                                        self.args.n_agents,
                                                                                                        self.args.n_agents))  # 形状 (batch_size, seq_len, n_agents, n_agents)
+        # 创建禁止向不可见对象分享经验的掩膜
+        re_mask_visible = visibility_matrix.to(torch.bool).to(self.args.device)
+
         re_mask_received = torch.logical_or(re_mask_up, re_mask_down)
+        re_mask_received = torch.logical_and(re_mask_received,re_mask_visible)
         # 进行条件赋值
-        receive_list = th.where(re_mask_notself & re_mask_received, share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.args.n_agents),
+        receive_list = th.where(re_mask_notself & re_mask_received,
+                                share_list.unsqueeze(dim=-1).expand(-1, -1, -1, self.args.n_agents),
                                 receive_list.unsqueeze(-1))
+
         # 每个agent取其接收值的最大值
         abs_receive = torch.abs(receive_list)
         re_max_indices = th.argmax(abs_receive, dim=3, keepdim=True)  # 找到绝对值最大值的索引
@@ -335,9 +353,10 @@ class INSPIRE_Learner:
         # 链接receive_list和个体TD-error
         received_q_td_error = torch.cat((masked_q_td_error, receive_list), dim=0)
 
-        #计算掩膜q_mask，标识非0值位置
+        # 计算掩膜q_mask，标识非0值位置
         q_mask = received_q_td_error != 0
-        return received_q_td_error,q_mask
+        return received_q_td_error, q_mask
+
 
     def _update_targets(self):
         self.target_mac.load_state(self.mac)
@@ -357,7 +376,7 @@ class INSPIRE_Learner:
         if self.mixer is not None:
             th.save(self.mixer.state_dict(), "{}/mixer.th".format(path))
         th.save(self.q_optimiser.state_dict(), "{}/q_opt.th".format(path))
-        th.save(self.mixer_optimiser.state_dict(), "{}/mixer_opt.th".format(path))
+        # th.save(self.mixer_optimiser.state_dict(), "{}/mixer_opt.th".format(path))
 
     def load_models(self, path):
         self.mac.load_models(path)
@@ -366,4 +385,4 @@ class INSPIRE_Learner:
         if self.mixer is not None:
             self.mixer.load_state_dict(th.load("{}/mixer.th".format(path), map_location=lambda storage, loc: storage))
         self.q_optimiser.load_state_dict(th.load("{}/q_opt.th".format(path), map_location=lambda storage, loc: storage))
-        self.mixer_optimiser.load_state_dict(th.load("{}/mixer_opt.th".format(path), map_location=lambda storage, loc: storage))
+        # self.mixer_optimiser.load_state_dict(th.load("{}/mixer_opt.th".format(path), map_location=lambda storage, loc: storage))
