@@ -1,5 +1,4 @@
-# INSPIRE: Individualized and Shared Prioritized Experience Replay for Sparse Reward Multi-agent Reinforcement Learning
-
+# INSPIRE: Individualized and Neighbor-based Sharing Prioritized Experience Replay for Multi-Agent Reinforcement Learning
 ## Acknowledgement
 
 The code is implement based on the following open-source projects:
