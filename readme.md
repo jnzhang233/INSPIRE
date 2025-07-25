@@ -38,10 +38,6 @@ We have retained the running code for INSPIRE and the baseline algorithms. The r
 python src/main.py --config=[Algorithm name] --env-config=[Env name] with
 for example:
 (INSPIRE)python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name=2s3z
-(Kaleiscope)python src/main.py --config=kalei/Kalei_qmix_rnn --env-config=sc2 with env_args.map_name=2s3z
-(DIFFER)python src/main.py --config=differ/differ_qmix --env-config=sc2 with env_args.map_name=2s3z
-(SUPER)python src/main.py --config=super_qmix --env-config=sc2 with env_args.map_name=2s3z
-(PER)python src/main.py --config=per_qmix --env-config=sc2 with env_args.map_name=2s3z
 ```
 
 The config files are all located in `src/config/algs`.
