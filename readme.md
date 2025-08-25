@@ -26,6 +26,7 @@ for example:
 The config files are all located in `src/config/algs`.
 
 ## Prerequisites
+The Python environment includes all dependencies required to run GraphSem as well as all baseline comparison algorithms.
 
 If you encounter any issues while downloading SMAC, SMACV2, and GRF, you can refer to [PymarlZoo](https://github.com/jnzhang233/PymarlZoo) or refer to the corresponding GitHub repository's issue. Additionally, apart from the basic extension package dependencies, the project can still operate normally even if individual environments are not configured.
 
