@@ -18,7 +18,7 @@ To evaluate effectiveness and robustness, we conduct experiments under sparse-re
 We have retained the running code for INSPIRE and the baseline algorithms. The running modes are as follows:
 
 ```shell
-python src/main.py --config=[Algorithm name] --env-config=[Env name] with
+python src/main.py --config=[Algorithm name] --env-config=[Env name] with env_args.map_name=[Map name]
 for example:
 (INSPIRE)python src/main.py --config=inspire_qmix --env-config=sc2 with env_args.map_name=2s3z
 ```
