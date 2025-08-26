@@ -1,6 +1,6 @@
 # INSPIRE: Individualized and Neighbor-based Sharing Prioritized Experience Replay for Multi-Agent Reinforcement Learning
 
-## overview
+## Overview
 This repository contains the official implementation of INSPIRE (Individualized and Neighbor-based Sharing Prioritized Experience Replay), a framework for efficient experience exchange in sparse-reward multi-agent reinforcement learning (MARL). INSPIRE is designed to enhance training efficiency and generalization performance under sparse reward conditions by combining:
 
 - Experience decomposition to partition team experiences into individualized replay buffers, reducing irrelevant information.
